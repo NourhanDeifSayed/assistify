@@ -1,0 +1,99 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
+    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
+    sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  background-color: #f9fafb;
+}
+
+html[dir="rtl"] {
+  direction: rtl;
+}
+
+html[dir="ltr"] {
+  direction: ltr;
+}
+
+/* Custom animations */
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.fade-in {
+  animation: fadeIn 0.3s ease-in;
+}
+
+/* Container utility */
+.container {
+  @apply max-w-7xl mx-auto;
+}
+
+/* Button styles */
+button {
+  @apply transition-colors duration-200;
+}
+
+button:hover {
+  @apply opacity-90;
+}
+
+/* Link styles */
+a {
+  @apply text-blue-600 hover:text-blue-800 transition-colors;
+}
+
+/* Card styles */
+.card {
+  @apply bg-white rounded-lg shadow-md p-6;
+}
+
+.card:hover {
+  @apply shadow-lg;
+}
+
+/* Section styles */
+section {
+  @apply w-full;
+}
+
+/* Grid utilities */
+.grid-auto {
+  @apply grid gap-4;
+}
+
+/* Flex utilities */
+.flex-center {
+  @apply flex items-center justify-center;
+}
+
+/* Text utilities */
+.text-gradient {
+  @apply bg-gradient-to-r from-blue-600 to-blue-800 bg-clip-text text-transparent;
+}
+
+/* Responsive utilities */
+@media (max-width: 768px) {
+  .container {
+    @apply px-4;
+  }
+}
