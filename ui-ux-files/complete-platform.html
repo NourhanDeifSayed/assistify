@@ -1,0 +1,569 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MediCare AI - Complete Platform</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
+        
+        .gradient-bg { background: linear-gradient(135deg, #0066CC 0%, #0052A3 100%); }
+        .page { display: none; }
+        .page.active { display: block; animation: fadeIn 0.3s; }
+        
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+        
+        .btn-primary { background: #0066CC; color: white; padding: 12px 24px; border-radius: 6px; border: none; cursor: pointer; font-weight: 600; transition: all 0.3s; }
+        .btn-primary:hover { background: #0052A3; transform: translateY(-2px); }
+        
+        .btn-secondary { background: #f5f5f5; color: #333; padding: 12px 24px; border-radius: 6px; border: 1px solid #ddd; cursor: pointer; font-weight: 600; }
+        
+        .product-card { border: 1px solid #e0e0e0; border-radius: 8px; padding: 16px; text-align: center; transition: all 0.3s; }
+        .product-card:hover { box-shadow: 0 4px 12px rgba(0,0,0,0.1); transform: translateY(-4px); }
+        
+        .status-badge { display: inline-block; padding: 6px 12px; border-radius: 20px; font-size: 12px; font-weight: 600; }
+        .status-pending { background: #FFC107; color: #333; }
+        .status-confirmed { background: #0066CC; color: white; }
+        .status-shipped { background: #6C757D; color: white; }
+        .status-delivered { background: #28A745; color: white; }
+        .status-delayed { background: #DC3545; color: white; }
+        
+        .timeline-item { display: flex; margin-bottom: 30px; position: relative; }
+        .timeline-marker { width: 40px; height: 40px; border-radius: 50%; background: #f5f5f5; border: 2px solid #ddd; display: flex; align-items: center; justify-content: center; margin-right: 20px; font-weight: bold; flex-shrink: 0; }
+        .timeline-item.completed .timeline-marker { background: #28A745; border-color: #28A745; color: white; }
+        
+        .chat-widget { position: fixed; bottom: 20px; right: 20px; width: 350px; height: 500px; background: white; border-radius: 12px; box-shadow: 0 5px 40px rgba(0,0,0,0.16); display: flex; flex-direction: column; z-index: 1000; }
+        .chat-header { background: linear-gradient(135deg, #0066CC 0%, #0052A3 100%); color: white; padding: 16px; border-radius: 12px 12px 0 0; display: flex; justify-content: space-between; align-items: center; }
+        .chat-messages { flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 12px; }
+        .chat-message { padding: 10px 14px; border-radius: 8px; max-width: 80%; word-wrap: break-word; }
+        .chat-message.user { background: #0066CC; color: white; align-self: flex-end; }
+        .chat-message.bot { background: #f5f5f5; color: #333; align-self: flex-start; }
+        .chat-input { padding: 12px; border-top: 1px solid #e0e0e0; display: flex; gap: 8px; }
+        .chat-input input { flex: 1; border: 1px solid #ddd; border-radius: 6px; padding: 8px 12px; }
+        
+        .social-btn { padding: 10px 16px; border-radius: 6px; border: none; color: white; font-weight: 600; cursor: pointer; transition: all 0.3s; margin: 4px; }
+        .whatsapp-btn { background: #25d366; }
+        .facebook-btn { background: #1877f2; }
+        .instagram-btn { background: #E4405F; }
+        .social-btn:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(0,0,0,0.2); }
+        
+        .integration-card { border: 1px solid #e0e0e0; border-radius: 8px; padding: 20px; text-align: center; transition: all 0.3s; }
+        .integration-card:hover { box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
+        
+        .alert { padding: 16px; border-radius: 8px; margin-bottom: 16px; }
+        .alert-warning { background: #fff3cd; border-left: 4px solid #FFC107; color: #856404; }
+        .alert-success { background: #d4edda; border-left: 4px solid #28A745; color: #155724; }
+        
+        .rating-stars { font-size: 32px; letter-spacing: 8px; cursor: pointer; }
+        .rating-stars span { cursor: pointer; transition: all 0.2s; }
+        .rating-stars span:hover, .rating-stars span.active { color: #FFC107; transform: scale(1.2); }
+        
+        .floating-chat-btn { position: fixed; bottom: 30px; right: 30px; width: 60px; height: 60px; border-radius: 50%; background: linear-gradient(135deg, #0066CC 0%, #0052A3 100%); color: white; border: none; cursor: pointer; font-size: 28px; display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 12px rgba(0,0,0,0.15); transition: all 0.3s; z-index: 999; }
+        .floating-chat-btn:hover { transform: scale(1.1); box-shadow: 0 6px 20px rgba(0,0,0,0.2); }
+        .floating-chat-btn.hidden { display: none; }
+        
+        .chat-widget.hidden { display: none; }
+        .chat-widget { position: fixed; bottom: 100px; right: 30px; }
+        
+        .loading-dots { display: inline-flex; gap: 4px; }
+        .loading-dots span { width: 8px; height: 8px; border-radius: 50%; background: #0066CC; animation: bounce 1.4s infinite; }
+        .loading-dots span:nth-child(2) { animation-delay: 0.2s; }
+        .loading-dots span:nth-child(3) { animation-delay: 0.4s; }
+        @keyframes bounce { 0%, 80%, 100% { opacity: 0.3; } 40% { opacity: 1; } }
+    </style>
+</head>
+<body class="bg-gray-50">
+    <!-- Navigation -->
+    <nav class="gradient-bg text-white shadow-lg sticky top-0 z-40">
+        <div class="max-w-6xl mx-auto px-4 py-4 flex justify-between items-center">
+            <h1 class="text-2xl font-bold">🏥 MediCare AI</h1>
+            <div class="flex gap-4">
+                <button onclick="showPage('home')" class="hover:bg-white hover:bg-opacity-20 px-4 py-2 rounded">Home</button>
+                <button onclick="showPage('products')" class="hover:bg-white hover:bg-opacity-20 px-4 py-2 rounded">Products</button>
+                <button onclick="showPage('integrations')" class="hover:bg-white hover:bg-opacity-20 px-4 py-2 rounded">Integrations</button>
+                <button onclick="showPage('cart')" class="hover:bg-white hover:bg-opacity-20 px-4 py-2 rounded">Cart <span id="cart-count" class="bg-red-500 rounded-full w-5 h-5 inline-flex items-center justify-center text-xs">0</span></button>
+                <button onclick="showAuthModal()" class="bg-white text-blue-600 px-4 py-2 rounded font-bold hover:bg-gray-100">Sign In</button>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Floating Chat Button -->
+    <button id="floating-chat-btn" class="floating-chat-btn" onclick="toggleChat()">💬</button>
+    
+    <!-- Chat Handler Script -->
+    <script src="chat-handler.js"></script>
+    
+    <!-- Chat Widget -->
+    <div id="chat-widget" class="chat-widget hidden">
+        <div class="chat-header"><span>🤖 MediCare AI Support</span><button onclick="toggleChat()" class="text-white hover:bg-white hover:bg-opacity-20 px-3 py-1 rounded">✕</button></div>
+        <div class="chat-messages" id="chat-messages-home" style="height: 400px;"><div class="chat-message bot">👋 مرحباً! أنا مساعد MediCare AI الذكي. كيف يمكنني مساعدتك اليوم؟</div></div>
+        <div class="chat-input"><input type="text" placeholder="اكتب رسالتك..." id="chat-input-home" onkeypress="if(event.key==='Enter') sendMessageToManus()"><button onclick="sendMessageToManus()" class="btn-primary">Send</button></div>
+    </div>
+
+    <!-- Home Page -->
+    <div id="home" class="page active">
+        <div class="gradient-bg text-white py-20">
+            <div class="max-w-6xl mx-auto px-4 text-center">
+                <h2 class="text-4xl font-bold mb-4">Welcome to MediCare AI</h2>
+                <p class="text-xl mb-8">Your trusted partner for medical devices and AI-powered support</p>
+                <button onclick="showPage('products')" class="bg-white text-blue-600 px-8 py-3 rounded-lg font-bold text-lg hover:bg-gray-100">Shop Now</button>
+            </div>
+        </div>
+        
+        <div class="max-w-6xl mx-auto px-4 py-16">
+            <h3 class="text-2xl font-bold mb-8">Why Choose Us?</h3>
+            <div class="grid grid-cols-3 gap-8">
+                <div class="text-center"><div class="text-4xl mb-4">🏥</div><h4 class="font-bold mb-2">Medical Grade</h4><p class="text-gray-600">Certified medical devices</p></div>
+                <div class="text-center"><div class="text-4xl mb-4">🤖</div><h4 class="font-bold mb-2">AI Support</h4><p class="text-gray-600">24/7 intelligent support</p></div>
+                <div class="text-center"><div class="text-4xl mb-4">🚚</div><h4 class="font-bold mb-2">Fast Delivery</h4><p class="text-gray-600">Real-time tracking</p></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Products Page -->
+    <div id="products" class="page">
+        <div class="max-w-6xl mx-auto px-4 py-8">
+            <h2 class="text-3xl font-bold mb-8">Our Products</h2>
+            <div class="grid grid-cols-3 gap-6">
+                <div class="product-card"><div class="text-5xl mb-4">🩺</div><h3 class="font-bold text-lg mb-2">Blood Pressure Monitor</h3><p class="text-gray-600 mb-4">Digital BP monitor</p><p class="text-2xl font-bold text-blue-600 mb-4">EGP 2,699</p><button onclick="addToCart('Blood Pressure Monitor', 2699)" class="btn-primary w-full">Add to Cart</button></div>
+                <div class="product-card"><div class="text-5xl mb-4">📊</div><h3 class="font-bold text-lg mb-2">Pulse Oximeter</h3><p class="text-gray-600 mb-4">Finger pulse oximeter</p><p class="text-2xl font-bold text-blue-600 mb-4">EGP 1,499</p><button onclick="addToCart('Pulse Oximeter', 1499)" class="btn-primary w-full">Add to Cart</button></div>
+                <div class="product-card"><div class="text-5xl mb-4">🌡️</div><h3 class="font-bold text-lg mb-2">Digital Thermometer</h3><p class="text-gray-600 mb-4">Fast temperature reading</p><p class="text-2xl font-bold text-blue-600 mb-4">EGP 899</p><button onclick="addToCart('Digital Thermometer', 899)" class="btn-primary w-full">Add to Cart</button></div>
+                <div class="product-card"><div class="text-5xl mb-4">⚖️</div><h3 class="font-bold text-lg mb-2">Smart Scale</h3><p class="text-gray-600 mb-4">Digital scale with BMI</p><p class="text-2xl font-bold text-blue-600 mb-4">EGP 2,399</p><button onclick="addToCart('Smart Scale', 2399)" class="btn-primary w-full">Add to Cart</button></div>
+                <div class="product-card"><div class="text-5xl mb-4">❤️</div><h3 class="font-bold text-lg mb-2">Heart Rate Monitor</h3><p class="text-gray-600 mb-4">Wearable monitor</p><p class="text-2xl font-bold text-blue-600 mb-4">EGP 3,899</p><button onclick="addToCart('Heart Rate Monitor', 3899)" class="btn-primary w-full">Add to Cart</button></div>
+                <div class="product-card"><div class="text-5xl mb-4">🩸</div><h3 class="font-bold text-lg mb-2">Glucose Monitor</h3><p class="text-gray-600 mb-4">Blood glucose system</p><p class="text-2xl font-bold text-blue-600 mb-4">EGP 1,799</p><button onclick="addToCart('Glucose Monitor', 1799)" class="btn-primary w-full">Add to Cart</button></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Integrations Page -->
+    <div id="integrations" class="page">
+        <div class="max-w-6xl mx-auto px-4 py-8">
+            <h2 class="text-3xl font-bold mb-8">🔗 Platform Integrations</h2>
+            
+            <!-- Shopify Integration -->
+            <div class="bg-white rounded-lg shadow p-8 mb-8">
+                <div class="flex items-center gap-4 mb-6">
+                    <div class="text-5xl">🛍️</div>
+                    <div>
+                        <h3 class="text-2xl font-bold">Shopify Integration</h3>
+                        <p class="text-gray-600">Real-time product and order synchronization</p>
+                    </div>
+                </div>
+                <div class="grid grid-cols-4 gap-4 mb-6">
+                    <div class="bg-blue-50 p-4 rounded text-center">
+                        <p class="text-3xl font-bold text-blue-600">2,450</p>
+                        <p class="text-sm text-gray-600">Products Synced</p>
+                    </div>
+                    <div class="bg-green-50 p-4 rounded text-center">
+                        <p class="text-3xl font-bold text-green-600">8,932</p>
+                        <p class="text-sm text-gray-600">Orders Processed</p>
+                    </div>
+                    <div class="bg-purple-50 p-4 rounded text-center">
+                        <p class="text-3xl font-bold text-purple-600">EGP 2.5M</p>
+                        <p class="text-sm text-gray-600">Total Revenue</p>
+                    </div>
+                    <div class="bg-orange-50 p-4 rounded text-center">
+                        <p class="text-3xl font-bold text-orange-600">98.5%</p>
+                        <p class="text-sm text-gray-600">Sync Success Rate</p>
+                    </div>
+                </div>
+                <div class="bg-gray-50 p-4 rounded">
+                    <p class="font-bold mb-2">Features:</p>
+                    <ul class="text-sm text-gray-600 space-y-1">
+                        <li>✓ Real-time inventory sync</li>
+                        <li>✓ Automatic order import</li>
+                        <li>✓ Revenue tracking</li>
+                        <li>✓ Product catalog management</li>
+                    </ul>
+                </div>
+            </div>
+
+            <!-- Social Media Integration -->
+            <div class="bg-white rounded-lg shadow p-8 mb-8">
+                <h3 class="text-2xl font-bold mb-6">📱 Social Media Channels</h3>
+                <div class="grid grid-cols-3 gap-6">
+                    <!-- WhatsApp -->
+                    <div class="integration-card">
+                        <div class="text-5xl mb-4">📱</div>
+                        <h4 class="font-bold text-lg mb-2">WhatsApp Business</h4>
+                        <p class="text-gray-600 mb-4">Direct messaging with customers</p>
+                        <p class="text-sm font-bold mb-4">+20 108 097 2433</p>
+                        <div class="mb-4 text-sm text-gray-600">
+                            <p>✓ Instant messaging</p>
+                            <p>✓ Order updates</p>
+                            <p>✓ Support tickets</p>
+                            <p>✓ Avg Response: 5 min</p>
+                        </div>
+                        <button onclick="window.open('https://wa.me/201080972433?text=Hello%20MediCare%20AI', '_blank')" class="social-btn whatsapp-btn w-full">Open WhatsApp</button>
+                    </div>
+
+                    <!-- Facebook -->
+                    <div class="integration-card">
+                        <div class="text-5xl mb-4">📘</div>
+                        <h4 class="font-bold text-lg mb-2">Facebook Messenger</h4>
+                        <p class="text-gray-600 mb-4">Connect via Facebook</p>
+                        <p class="text-sm font-bold mb-4">@MediCareAI</p>
+                        <div class="mb-4 text-sm text-gray-600">
+                            <p>✓ Messenger integration</p>
+                            <p>✓ Page messages</p>
+                            <p>✓ Customer support</p>
+                            <p>✓ Avg Response: 15 min</p>
+                        </div>
+                        <button onclick="window.open('https://m.me/medicareai', '_blank')" class="social-btn facebook-btn w-full">Open Messenger</button>
+                    </div>
+
+                    <!-- Instagram -->
+                    <div class="integration-card">
+                        <div class="text-5xl mb-4">📷</div>
+                        <h4 class="font-bold text-lg mb-2">Instagram DM</h4>
+                        <p class="text-gray-600 mb-4">Direct messages on Instagram</p>
+                        <p class="text-sm font-bold mb-4">@medicareai</p>
+                        <div class="mb-4 text-sm text-gray-600">
+                            <p>✓ Direct messaging</p>
+                            <p>✓ Story replies</p>
+                            <p>✓ Customer inquiries</p>
+                            <p>✓ Avg Response: 30 min</p>
+                        </div>
+                        <button onclick="window.open('https://instagram.com/medicareai', '_blank')" class="social-btn instagram-btn w-full">Open Instagram</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Payment Integration -->
+            <div class="bg-white rounded-lg shadow p-8 mb-8">
+                <div class="flex items-center gap-4 mb-6">
+                    <div class="text-5xl">💳</div>
+                    <div>
+                        <h3 class="text-2xl font-bold">Payment Methods</h3>
+                        <p class="text-gray-600">Secure payment processing</p>
+                    </div>
+                </div>
+                <div class="grid grid-cols-2 gap-6">
+                    <div class="border rounded-lg p-6">
+                        <h4 class="font-bold mb-2">💳 Card Payment</h4>
+                        <p class="text-gray-600 text-sm mb-4">Visa, MasterCard, Amex</p>
+                        <p class="text-sm">✓ PCI DSS Compliant<br>✓ Instant processing<br>✓ Secure encryption</p>
+                    </div>
+                    <div class="border rounded-lg p-6">
+                        <h4 class="font-bold mb-2">🚚 Cash on Delivery</h4>
+                        <p class="text-gray-600 text-sm mb-4">Pay when you receive</p>
+                        <p class="text-sm">✓ No upfront payment<br>✓ Verification required<br>✓ Safe & secure</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- LLM Integration -->
+            <div class="bg-white rounded-lg shadow p-8">
+                <div class="flex items-center gap-4 mb-6">
+                    <div class="text-5xl">🤖</div>
+                    <div>
+                        <h3 class="text-2xl font-bold">AI & LLM Integration</h3>
+                        <p class="text-gray-600">Intelligent customer support</p>
+                    </div>
+                </div>
+                <div class="grid grid-cols-1 gap-6">
+                    <div class="border rounded-lg p-6">
+                        <h4 class="font-bold mb-2">🟣 Manus LLM</h4>
+                        <p class="text-gray-600 text-sm">Built-in platform LLM</p>
+                        <p class="text-sm mt-4">✓ Multi-language support<br>✓ Arabic optimization<br>✓ Real-time processing<br>✓ Intelligent customer support<br>✓ Product recommendations<br>✓ Order tracking assistance</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Cart Page -->
+    <div id="cart" class="page">
+        <div class="max-w-4xl mx-auto px-4 py-8">
+            <h2 class="text-3xl font-bold mb-8">Shopping Cart</h2>
+            <div id="cart-items" class="bg-white rounded-lg shadow p-6 mb-6"><p class="text-gray-600 text-center py-8">Your cart is empty</p></div>
+            <div class="bg-white rounded-lg shadow p-6">
+                <div class="flex justify-between mb-4 pb-4 border-b"><span class="font-bold">Subtotal:</span><span id="subtotal" class="font-bold">EGP 0</span></div>
+                <div class="flex justify-between mb-4 pb-4 border-b"><span class="font-bold">Shipping:</span><span class="font-bold">EGP 50</span></div>
+                <div class="flex justify-between mb-6 text-xl"><span class="font-bold">Total:</span><span id="total" class="font-bold text-blue-600">EGP 50</span></div>
+                <button onclick="showPage('payment')" class="btn-primary w-full py-3 text-lg">Proceed to Checkout</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Payment Page -->
+    <div id="payment" class="page">
+        <div class="max-w-4xl mx-auto px-4 py-8">
+            <h2 class="text-3xl font-bold mb-8">Payment</h2>
+            <div class="grid grid-cols-2 gap-8">
+                <div class="bg-white rounded-lg shadow p-6">
+                    <h3 class="font-bold text-lg mb-4">Order Summary</h3>
+                    <div id="payment-summary" class="text-sm space-y-2 mb-4 pb-4 border-b"><p>Loading...</p></div>
+                    <div class="flex justify-between font-bold text-lg"><span>Total:</span><span id="payment-total" class="text-blue-600">EGP 0</span></div>
+                </div>
+                <div class="bg-white rounded-lg shadow p-6">
+                    <h3 class="font-bold text-lg mb-4">Payment Method</h3>
+                    <div class="space-y-4">
+                        <div class="border rounded-lg p-4">
+                            <label class="flex items-center cursor-pointer"><input type="radio" name="payment" value="card" checked onchange="togglePaymentMethod('card')"><span class="ml-2 font-bold">💳 Credit/Debit Card</span></label>
+                            <div id="card-form" class="mt-4 space-y-3"><input type="text" placeholder="Card Number" class="w-full border rounded px-3 py-2"><div class="grid grid-cols-2 gap-2"><input type="text" placeholder="MM/YY" class="border rounded px-3 py-2"><input type="text" placeholder="CVV" class="border rounded px-3 py-2"></div><input type="text" placeholder="Cardholder Name" class="w-full border rounded px-3 py-2"></div>
+                        </div>
+                        <div class="border rounded-lg p-4">
+                            <label class="flex items-center cursor-pointer"><input type="radio" name="payment" value="cod" onchange="togglePaymentMethod('cod')"><span class="ml-2 font-bold">🚚 Cash on Delivery</span></label>
+                            <div id="cod-form" class="mt-4 space-y-3 hidden"><input type="text" placeholder="Delivery Address" class="w-full border rounded px-3 py-2"><input type="tel" placeholder="Phone Number" class="w-full border rounded px-3 py-2"></div>
+                        </div>
+                    </div>
+                    <button onclick="confirmPayment()" class="btn-primary w-full mt-6 py-3">Confirm Payment</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Order Confirmation Page -->
+    <div id="confirmation" class="page">
+        <div class="max-w-4xl mx-auto px-4 py-8">
+            <div class="bg-white rounded-lg shadow p-8 text-center">
+                <div class="text-6xl mb-4">✅</div>
+                <h2 class="text-3xl font-bold mb-2">Order Confirmed!</h2>
+                <p class="text-gray-600 mb-8">Thank you for your purchase</p>
+                <div class="bg-blue-50 rounded-lg p-6 mb-8"><p class="text-gray-600 mb-2">Order Number</p><p id="order-number" class="text-3xl font-bold text-blue-600">#ORD-2025-001</p></div>
+                <div class="bg-white border rounded-lg p-6 mb-8"><h3 class="font-bold text-lg mb-4">Order Details</h3><div id="confirmation-details" class="text-left space-y-2 mb-4 pb-4 border-b"><p>Loading...</p></div><div class="flex justify-between font-bold text-lg"><span>Total Amount:</span><span id="confirmation-total" class="text-blue-600">EGP 0</span></div><p class="text-sm text-gray-600 mt-4">Estimated Delivery: 5-7 business days</p></div>
+                <div class="flex gap-4">
+                    <button onclick="showPage('tracking')" class="btn-primary flex-1 py-3">Track Order</button>
+                    <button onclick="showPage('review')" class="btn-primary flex-1 py-3">Leave Review</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Order Tracking Page -->
+    <div id="tracking" class="page">
+        <div class="max-w-4xl mx-auto px-4 py-8">
+            <h2 class="text-3xl font-bold mb-8">Order Tracking</h2>
+            <div id="delay-alert" class="alert alert-warning hidden mb-6"><strong>⚠️ Shipment Delayed</strong><p>Your shipment is experiencing a delay. New estimated delivery: Nov 25, 2025</p><button onclick="showPage('chat')" class="text-blue-600 font-bold mt-2">📞 Contact Support</button></div>
+            <div class="bg-white rounded-lg shadow p-6 mb-6">
+                <div class="flex justify-between items-center mb-6"><div><p class="text-gray-600">Order Number</p><p id="tracking-order-number" class="text-2xl font-bold">#ORD-2025-001</p></div><div class="text-right"><p class="text-gray-600">Status</p><p id="tracking-status" class="text-2xl font-bold text-blue-600">In Transit</p></div></div>
+                <div class="space-y-4">
+                    <div class="timeline-item completed"><div class="timeline-marker">✓</div><div><p class="font-bold">Order Placed</p><p class="text-sm text-gray-600">Nov 18, 2025</p></div></div>
+                    <div class="timeline-item completed"><div class="timeline-marker">✓</div><div><p class="font-bold">Confirmed</p><p class="text-sm text-gray-600">Nov 18, 2025</p></div></div>
+                    <div class="timeline-item completed"><div class="timeline-marker">✓</div><div><p class="font-bold">Shipped</p><p class="text-sm text-gray-600">Nov 19, 2025</p></div></div>
+                    <div class="timeline-item completed"><div class="timeline-marker">✓</div><div><p class="font-bold">In Transit</p><p class="text-sm text-gray-600">Nov 20, 2025 - Current</p></div></div>
+                    <div class="timeline-item"><div class="timeline-marker">5</div><div><p class="font-bold">Out for Delivery</p><p class="text-sm text-gray-600">Expected Nov 24, 2025</p></div></div>
+                    <div class="timeline-item"><div class="timeline-marker">6</div><div><p class="font-bold">Delivered</p><p class="text-sm text-gray-600">Expected Nov 25, 2025</p></div></div>
+                </div>
+            </div>
+            <div class="bg-white rounded-lg shadow p-6"><h3 class="font-bold text-lg mb-4">Shipment Details</h3><div class="space-y-3 text-sm"><div class="flex justify-between"><span class="text-gray-600">Tracking Number:</span><span class="font-bold">ARAMEX-2025-001</span></div><div class="flex justify-between"><span class="text-gray-600">Carrier:</span><span class="font-bold">Aramex</span></div><div class="flex justify-between"><span class="text-gray-600">Current Location:</span><span class="font-bold">Cairo Distribution Center</span></div><div class="flex justify-between"><span class="text-gray-600">Estimated Delivery:</span><span class="font-bold">Nov 25, 2025</span></div></div></div>
+            <button onclick="showPage('chat')" class="btn-primary w-full mt-6 py-3">📞 Contact Support</button>
+        </div>
+    </div>
+
+    <!-- Review Page -->
+    <div id="review" class="page">
+        <div class="max-w-2xl mx-auto px-4 py-8">
+            <h2 class="text-3xl font-bold mb-8">Share Your Feedback</h2>
+            <div class="bg-white rounded-lg shadow p-8">
+                <div class="mb-8 pb-8 border-b"><h3 class="font-bold text-lg mb-4">You Ordered:</h3><div id="review-items" class="space-y-2"><p>Loading...</p></div></div>
+                <div class="mb-8"><label class="block font-bold mb-4">How would you rate your experience?</label><div class="rating-stars" id="rating-stars"><span onclick="setRating(1)">☆</span><span onclick="setRating(2)">☆</span><span onclick="setRating(3)">☆</span><span onclick="setRating(4)">☆</span><span onclick="setRating(5)">☆</span></div><p id="rating-text" class="text-sm text-gray-600 mt-2">Click to rate</p></div>
+                <div class="mb-8"><label class="block font-bold mb-2">Your Feedback</label><textarea id="feedback-text" placeholder="Share your experience..." class="w-full border rounded px-4 py-3 h-32"></textarea></div>
+                <div class="flex gap-4"><button onclick="submitReview()" class="btn-primary flex-1 py-3">Submit Review</button><button onclick="showPage('offers')" class="btn-secondary flex-1 py-3">Skip</button></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Offers Page -->
+    <div id="offers" class="page">
+        <div class="max-w-6xl mx-auto px-4 py-8">
+            <h2 class="text-3xl font-bold mb-8">Personalized Offers Just for You</h2>
+            <p class="text-gray-600 mb-8">Based on your recent purchase, we recommend:</p>
+            <div class="grid grid-cols-3 gap-6 mb-8">
+                <div class="bg-white rounded-lg shadow overflow-hidden"><div class="bg-gradient-to-r from-blue-500 to-blue-600 text-white p-4 text-center"><p class="text-3xl font-bold">-20%</p></div><div class="p-6"><div class="text-4xl mb-4">📊</div><h3 class="font-bold text-lg mb-2">Pulse Oximeter</h3><p class="text-gray-600 mb-4">Complete your health monitoring kit</p><div class="flex gap-2 mb-4"><span class="line-through text-gray-500">EGP 1,499</span><span class="font-bold text-blue-600">EGP 1,199</span></div><button onclick="addToCart('Pulse Oximeter', 1199)" class="btn-primary w-full">Add to Cart</button></div></div>
+                <div class="bg-white rounded-lg shadow overflow-hidden"><div class="bg-gradient-to-r from-green-500 to-green-600 text-white p-4 text-center"><p class="text-3xl font-bold">-15%</p></div><div class="p-6"><div class="text-4xl mb-4">⚖️</div><h3 class="font-bold text-lg mb-2">Smart Scale</h3><p class="text-gray-600 mb-4">Track your weight and health metrics</p><div class="flex gap-2 mb-4"><span class="line-through text-gray-500">EGP 2,399</span><span class="font-bold text-blue-600">EGP 2,039</span></div><button onclick="addToCart('Smart Scale', 2039)" class="btn-primary w-full">Add to Cart</button></div></div>
+                <div class="bg-white rounded-lg shadow overflow-hidden"><div class="bg-gradient-to-r from-purple-500 to-purple-600 text-white p-4 text-center"><p class="text-3xl font-bold">-25%</p></div><div class="p-6"><div class="text-4xl mb-4">❤️</div><h3 class="font-bold text-lg mb-2">Heart Rate Monitor</h3><p class="text-gray-600 mb-4">Monitor your heart health 24/7</p><div class="flex gap-2 mb-4"><span class="line-through text-gray-500">EGP 3,899</span><span class="font-bold text-blue-600">EGP 2,924</span></div><button onclick="addToCart('Heart Rate Monitor', 2924)" class="btn-primary w-full">Add to Cart</button></div></div>
+            </div>
+            <div class="flex gap-4"><button onclick="showPage('chat')" class="btn-primary flex-1 py-3">💬 Chat with Support</button><button onclick="showPage('home')" class="btn-secondary flex-1 py-3">Back to Home</button></div>
+        </div>
+    </div>
+
+    <!-- Chat Page -->
+    <div id="chat" class="page">
+        <div class="max-w-4xl mx-auto px-4 py-8">
+            <h2 class="text-3xl font-bold mb-8">🤖 24/7 Customer Support</h2>
+            <div class="bg-white rounded-lg shadow overflow-hidden mb-8">
+                <div class="chat-header"><span>🤖 MediCare AI Support</span><button onclick="showPage('home')" class="text-white hover:bg-white hover:bg-opacity-20 px-3 py-1 rounded">✕</button></div>
+                <div class="chat-messages" style="height: 400px;"><div class="chat-message bot">👋 Hi! I'm MediCare AI. How can I help you today?</div><div class="chat-message bot">I can help with: Orders, Tracking, Products, Returns, and more!</div></div>
+                <div class="chat-input"><input type="text" placeholder="Type your message..." id="chat-input" onkeypress="if(event.key==='Enter') sendMessage()"><button onclick="sendMessage()" class="btn-primary">Send</button></div>
+            </div>
+
+            <div class="bg-white rounded-lg shadow p-8">
+                <h3 class="text-2xl font-bold mb-6">📱 Connect with Us</h3>
+                <p class="text-gray-600 mb-6">Choose your preferred communication channel:</p>
+                <div class="grid grid-cols-3 gap-6 mb-8">
+                    <div class="border rounded-lg p-6 text-center hover:shadow-lg transition">
+                        <div class="text-5xl mb-4">📱</div>
+                        <h4 class="font-bold text-lg mb-2">WhatsApp</h4>
+                        <p class="text-gray-600 mb-4">Chat instantly with our team</p>
+                        <button onclick="window.open('https://wa.me/201080972433?text=Hello%20MediCare%20AI', '_blank')" class="social-btn whatsapp-btn w-full py-2">Open WhatsApp</button>
+                        <p class="text-sm text-gray-600 mt-2">+20 108 097 2433</p>
+                    </div>
+                    <div class="border rounded-lg p-6 text-center hover:shadow-lg transition">
+                        <div class="text-5xl mb-4">📘</div>
+                        <h4 class="font-bold text-lg mb-2">Facebook</h4>
+                        <p class="text-gray-600 mb-4">Message us on Facebook</p>
+                        <button onclick="window.open('https://m.me/medicareai', '_blank')" class="social-btn facebook-btn w-full py-2">Open Messenger</button>
+                        <p class="text-sm text-gray-600 mt-2">@MediCareAI</p>
+                    </div>
+                    <div class="border rounded-lg p-6 text-center hover:shadow-lg transition">
+                        <div class="text-5xl mb-4">📷</div>
+                        <h4 class="font-bold text-lg mb-2">Instagram</h4>
+                        <p class="text-gray-600 mb-4">DM us on Instagram</p>
+                        <button onclick="window.open('https://instagram.com/medicareai', '_blank')" class="social-btn instagram-btn w-full py-2">Open Instagram</button>
+                        <p class="text-sm text-gray-600 mt-2">@medicareai</p>
+                    </div>
+                </div>
+
+                <div class="bg-blue-50 rounded-lg p-6 mb-6">
+                    <h4 class="font-bold text-lg mb-4">🔗 Integrated Platforms</h4>
+                    <div class="grid grid-cols-2 gap-4">
+                        <div class="flex items-center gap-2"><span class="text-2xl">🛍️</span><div><p class="font-bold">Shopify Integration</p><p class="text-sm text-gray-600">Real-time product & order sync</p></div></div>
+                        <div class="flex items-center gap-2"><span class="text-2xl">💳</span><div><p class="font-bold">Payment Processing</p><p class="text-sm text-gray-600">Card & Cash on Delivery</p></div></div>
+                        <div class="flex items-center gap-2"><span class="text-2xl">📱</span><div><p class="font-bold">Multi-Channel Chat</p><p class="text-sm text-gray-600">WhatsApp, Facebook, Instagram</p></div></div>
+                        <div class="flex items-center gap-2"><span class="text-2xl">🤖</span><div><p class="font-bold">AI & LLM</p><p class="text-sm text-gray-600">OpenAI, Manus, Google Vertex</p></div></div>
+                    </div>
+                </div>
+
+                <div class="bg-green-50 rounded-lg p-6">
+                    <h4 class="font-bold text-lg mb-4">⏱️ Response Times</h4>
+                    <div class="space-y-2 text-sm">
+                        <p>🟢 <strong>WhatsApp:</strong> Usually within 5 minutes</p>
+                        <p>🟢 <strong>Facebook:</strong> Usually within 15 minutes</p>
+                        <p>🟢 <strong>Instagram:</strong> Usually within 30 minutes</p>
+                        <p>🟢 <strong>Chat Bot:</strong> Instant responses 24/7</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Auth Modal -->
+    <div id="auth-modal" class="fixed inset-0 bg-black bg-opacity-50 hidden flex items-center justify-center z-50">
+        <div class="bg-white rounded-lg shadow-lg p-8 max-w-400px w-full mx-4">
+            <h2 class="text-2xl font-bold mb-6">Sign In / Sign Up</h2>
+            <div class="space-y-4 mb-6">
+                <input type="email" placeholder="Email" class="w-full border rounded px-4 py-2">
+                <input type="password" placeholder="Password" class="w-full border rounded px-4 py-2">
+                <div><label class="block font-bold mb-2">Role</label><select id="user-role" class="w-full border rounded px-4 py-2"><option value="customer">Customer</option><option value="admin">Admin</option></select></div>
+            </div>
+            <button onclick="handleAuth()" class="btn-primary w-full py-2 mb-2">Sign In</button>
+            <button onclick="closeAuthModal()" class="btn-secondary w-full py-2">Cancel</button>
+        </div>
+    </div>
+
+    <script>
+        let cart = [];
+        let currentRating = 0;
+
+        function showPage(pageId) {
+            document.querySelectorAll('.page').forEach(page => page.classList.remove('active'));
+            document.getElementById(pageId).classList.add('active');
+            window.scrollTo(0, 0);
+        }
+
+        function addToCart(name, price) {
+            cart.push({ name, price });
+            updateCart();
+            alert(name + ' added to cart!');
+        }
+
+        function updateCart() {
+            document.getElementById('cart-count').textContent = cart.length;
+            const cartItemsDiv = document.getElementById('cart-items');
+            if (cart.length === 0) {
+                cartItemsDiv.innerHTML = '<p class="text-gray-600 text-center py-8">Your cart is empty</p>';
+            } else {
+                cartItemsDiv.innerHTML = cart.map((item, idx) => `<div class="flex justify-between items-center pb-4 border-b"><div><p class="font-bold">${item.name}</p><p class="text-gray-600">EGP ${item.price}</p></div><button onclick="removeFromCart(${idx})" class="text-red-600 font-bold">Remove</button></div>`).join('');
+            }
+            const subtotal = cart.reduce((sum, item) => sum + item.price, 0);
+            document.getElementById('subtotal').textContent = 'EGP ' + subtotal;
+            document.getElementById('total').textContent = 'EGP ' + (subtotal + 50);
+            updatePaymentSummary();
+        }
+
+        function removeFromCart(idx) {
+            cart.splice(idx, 1);
+            updateCart();
+        }
+
+        function updatePaymentSummary() {
+            const subtotal = cart.reduce((sum, item) => sum + item.price, 0);
+            const total = subtotal + 50;
+            document.getElementById('payment-summary').innerHTML = cart.map(item => `<div class="flex justify-between"><span>${item.name}</span><span>EGP ${item.price}</span></div>`).join('') + `<div class="flex justify-between"><span>Shipping</span><span>EGP 50</span></div>`;
+            document.getElementById('payment-total').textContent = 'EGP ' + total;
+        }
+
+        function togglePaymentMethod(method) {
+            document.getElementById('card-form').classList.toggle('hidden', method !== 'card');
+            document.getElementById('cod-form').classList.toggle('hidden', method !== 'cod');
+        }
+
+        function confirmPayment() {
+            if (cart.length === 0) { alert('Your cart is empty!'); return; }
+            const orderNumber = '#ORD-' + new Date().getFullYear() + '-' + String(Math.floor(Math.random() * 10000)).padStart(4, '0');
+            const subtotal = cart.reduce((sum, item) => sum + item.price, 0);
+            const total = subtotal + 50;
+            document.getElementById('order-number').textContent = orderNumber;
+            document.getElementById('tracking-order-number').textContent = orderNumber;
+            document.getElementById('confirmation-details').innerHTML = cart.map(item => `<div class="flex justify-between"><span>${item.name}</span><span>EGP ${item.price}</span></div>`).join('');
+            document.getElementById('confirmation-total').textContent = 'EGP ' + total;
+            document.getElementById('review-items').innerHTML = cart.map(item => `<p>• ${item.name} - EGP ${item.price}</p>`).join('');
+            showPage('confirmation');
+        }
+
+        function setRating(stars) {
+            currentRating = stars;
+            const starsDiv = document.getElementById('rating-stars');
+            starsDiv.innerHTML = Array(5).fill(0).map((_, i) => `<span onclick="setRating(${i+1})" style="color: ${i < stars ? '#FFC107' : '#ccc'}">${i < stars ? '★' : '☆'}</span>`).join('');
+            const texts = ['', 'Poor', 'Fair', 'Good', 'Very Good', 'Excellent'];
+            document.getElementById('rating-text').textContent = texts[stars];
+        }
+
+        function submitReview() {
+            if (currentRating === 0) { alert('Please select a rating!'); return; }
+            alert('Thank you for your review!');
+            showPage('offers');
+        }
+
+        function showAuthModal() { document.getElementById('auth-modal').classList.remove('hidden'); }
+        function closeAuthModal() { document.getElementById('auth-modal').classList.add('hidden'); }
+
+        function handleAuth() {
+            const role = document.getElementById('user-role').value;
+            if (role === 'admin') {
+                window.open('https://8000-imc5clmv16dvpe1124gau-9eb2aa4c.manus-asia.computer/admin/', '_blank');
+            } else {
+                alert('Welcome, Customer!');
+            }
+            closeAuthModal();
+        }
+
+        function sendMessage() {
+            const input = document.getElementById('chat-input');
+            const message = input.value;
+            if (message.trim()) {
+                const messagesDiv = document.querySelector('.chat-messages');
+                messagesDiv.innerHTML += `<div class="chat-message user">${message}</div>`;
+                input.value = '';
+                setTimeout(() => {
+                    messagesDiv.innerHTML += `<div class="chat-message bot">Thanks for your message! How else can I help?</div>`;
+                    messagesDiv.scrollTop = messagesDiv.scrollHeight;
+                }, 500);
+            }
+        }
+
+        function toggleChat() {
+            const chatWidget = document.getElementById('chat-widget');
+            chatWidget.classList.toggle('hidden');
+        }
+
+        // Chat function is now in chat-handler.js
+
+        updateCart();
+    </script>
+</body>
+</html>
