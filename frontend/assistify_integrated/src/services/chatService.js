@@ -1,1 +1,0 @@
-export { sendChatMessage } from "./api";
