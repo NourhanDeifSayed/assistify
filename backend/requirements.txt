@@ -28,3 +28,4 @@ Django
 djangorestframework
 python-dotenv
 ollama
+twilio

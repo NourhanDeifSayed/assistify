@@ -1,6 +1,5 @@
 const BASE_URL = "http://localhost:8000/api/v1";
 
-
 function getToken() {
   return localStorage.getItem("access_token");
 }
@@ -20,7 +19,6 @@ async function request(path, options = {}) {
   return data;
 }
 
-
 export async function register({ username, email, password, password2, role }) {
   return request("/auth/register/", {
     method: "POST",
@@ -35,7 +33,7 @@ export async function login({ email, password }) {
   });
   localStorage.setItem("access_token", data.access);
   localStorage.setItem("refresh_token", data.refresh);
-  return data; 
+  return data;
 }
 
 export function logout() {
@@ -47,7 +45,6 @@ export async function getMe() {
   return request("/auth/me/");
 }
 
-
 export async function fetchProducts(search = "") {
   const q = search ? `?search=${encodeURIComponent(search)}` : "";
   return request(`/products/${q}`);
@@ -57,11 +54,9 @@ export async function fetchProductById(id) {
   return request(`/products/${id}/`);
 }
 
-
 export async function fetchOffers() {
   return request("/products/offers/");
 }
-
 
 export async function placeOrder({ customerEmail, paymentMethod, deliveryAddress, phone, items }) {
   return request("/orders/", {
@@ -91,11 +86,60 @@ export async function submitReview({ orderId, rating, comment }) {
   });
 }
 
-
 export async function sendChatMessage(message, conversationId = null) {
   const data = await request("/chat/", {
     method: "POST",
-    body: JSON.stringify({ message, conversation_id: conversationId }),
+    body: JSON.stringify({
+      message,
+      conversation_id: conversationId,
+    }),
   });
-  return { reply: data.reply, conversationId: data.conversation_id };
+
+  return {
+    reply: data.reply,
+    conversationId: data.conversation_id,
+  };
+}
+
+export async function fetchAnalytics() {
+  return request("/chat/analytics/");
+}
+
+export async function submitConversationFeedback({ conversationId, rating, comment }) {
+  return request("/chat/feedback/", {
+    method: "POST",
+    body: JSON.stringify({
+      conversation_id: conversationId,
+      rating,
+      comment,
+    }),
+  });
+}
+
+export async function fetchAdminOrders() {
+  return request("/orders/list/");
+}
+
+export async function updateOrderStatus({
+  orderNumber,
+  status,
+  location,
+  trackingNumber = "",
+}) {
+  const payload = {
+    status,
+    location,
+  };
+
+  if (trackingNumber) {
+    payload.tracking_number = trackingNumber;
+  }
+
+  return request(
+    `/orders/${encodeURIComponent(orderNumber)}/status/`,
+    {
+      method: "PATCH",
+      body: JSON.stringify(payload),
+    }
+  );
 }

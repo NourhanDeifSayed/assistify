@@ -1,9 +1,14 @@
 import { useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { login, register } from "../services/api";
 import styles from "./AuthModal.module.css";
 
-export default function AuthModal({ onClose }) {
-  const [mode, setMode] = useState("login");  
+export default function AuthModal({
+  onClose,
+  onAuthSuccess,
+}) {
+  const navigate = useNavigate();
+  const [mode, setMode] = useState("login");
   const [role, setRole] = useState("customer");
   const [email, setEmail] = useState("");
   const [username, setUsername] = useState("");
@@ -17,10 +22,23 @@ export default function AuthModal({ onClose }) {
     setLoading(true);
     try {
       if (mode === "login") {
-        const data = await login({ email, password });
-        alert(`Welcome back, ${data.user.email}!`);
-        if (data.user.role === "admin") {
-          window.open("http://localhost:8000/admin/", "_blank");
+        const data = await login({
+          email,
+          password,
+        });
+
+        const authenticatedUser = data.user;
+        onAuthSuccess(authenticatedUser);
+
+        const isAdmin =
+          authenticatedUser.is_staff ||
+          authenticatedUser.is_superuser ||
+          authenticatedUser.role === "admin";
+
+        onClose();
+
+        if (isAdmin) {
+          navigate("/analytics");
         }
       } else {
         await register({ username, email, password, password2, role });
@@ -28,7 +46,6 @@ export default function AuthModal({ onClose }) {
         setMode("login");
         return;
       }
-      onClose();
     } catch (err) {
       const msg = err.detail || err.email?.[0] || err.password?.[0] || "Something went wrong.";
       setError(msg);

@@ -2,72 +2,238 @@ from __future__ import annotations
 import gc
 import json
 import logging
+import os
 import re
-import requests
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
 from django.apps import apps
+from django.contrib.auth import get_user_model
 from .state_machine import PurchaseState, StateMachine, extract_name, extract_phone
+from assistify.apps.orders.services import (
+    create_order_from_chat,
+    generate_order_tracking_token,
+    get_local_catalog_products,
+)
 from assistify.apps.shopify_service import get_shopify_products, create_shopify_draft_order
+from assistify.apps.support.models import SupportTicket
+from assistify.apps.support.services import (
+    create_support_ticket,
+    detect_issue_type,
+    extract_ticket_number,
+    get_latest_order_for_user,
+    get_ticket_for_user,
+    is_ticket_tracking_request,
+)
+
 logger = logging.getLogger(__name__)
-_RE_ORDER_NUM = re.compile(r"ord-\d{4}-\d{1,5}", re.I)
+
+_RE_ORDER_NUM = re.compile(r"ord-\d{4}-[a-f0-9]{4,32}", re.I)
 _RE_ARABIC = re.compile(r"[\u0600-\u06FF]")
 _RE_EMAIL = re.compile(r"[\w\.-]+@[\w\.-]+\.\w+")
 _RE_QUANTITY = re.compile(r"(?:الكمية|عدد|quantity|qty)\s*[:\-]?\s*(\d+)", re.I)
 _RE_GARBAGE = re.compile(r"<\|im_start\|>|<\|im_end\|>|<\|[^|]+\|>")
 _RE_PRODUCT_NUMBER = re.compile(r"(?:رقم\s*)?(?:product\s*)?(?:number\s*)?(\d+)", re.IGNORECASE)
+
 _PRODUCT_KEYWORDS_SORTED: List[str] = sorted(["blood pressure monitor", "heart rate monitor", "pulse oximeter", "infrared thermometer", "digital thermometer", "nebulizer machine", "electric heating pad", "glucose monitor", "blood pressure", "heart rate", "heating pad", "nebulizer", "oximeter", "thermometer", "glucose", "pulse", "monitor", "mask", "جهاز الضغط", "قياس الضغط", "ضغط", "جهاز السكر", "قياس السكر", "سكر", "ترمومتر", "حرارة", "ميزان حرارة", "اكسجين", "أكسجين", "قياس الأكسجين", "تنفس", "بخاخة", "نيبولايزر", "كمامة", "كمامات"], key=len, reverse=True)
+
 _PURCHASE_TRIGGER_WORDS = frozenset(["عايز أطلب", "عايزة أطلب", "عايز اطلب", "عايزة اطلب", "ممكن اطلبه", "ممكن أطلبه", "اطلبه", "أطلبه", "عايزة اطلبه", "عايز اطلبه", "أطلب", "اطلب", "طلب", "شراء", "أشتري", "اشتري", "purchase", "buy", "order it", "i want to buy", "i want to order", "order", "i'll take it", "أيوه اطلبه", "خلاص اطلب", "تمام", "oki", "okay", "ايوه", "أيوه", "yes"])
+
 _FOLLOW_UP_TRIGGER_WORDS = frozenset(["اطلبه", "أطلبه", "اطلبها", "أطلبها", "ممكن اطلبه", "ممكن أطلبه", "ممكن اطلبها", "عايزة اطلبه", "عايز اطلبه", "عايزة اطلبها", "كام سعره", "كام سعرها", "بكام", "سعره", "سعرها", "تفاصيله", "تفاصيلها", "مواصفاته", "مواصفاتها", "how much", "order it", "buy it", "i want it", "tell me more", "more details", "price"])
+
 _TRACKING_TRIGGER_WORDS = frozenset(["فين طلبي", "تتبع الطلب", "حالة الطلب", "track order", "order status", "الطلب فين", "وصل الطلب", "أين طلبي"])
+
 _OUT_OF_SCOPE_KEYWORDS: List[str] = ["الساعة كام", "الوقت", "الطقس", "الجو", "الدولار", "العملة", "اليورو", "الجنيه الاسترليني", "البيتكوين", "أخبار", "الأخبار", "سياسة", "الانتخابات", "مباراة", "كرة القدم", "كرة", "الدوري", "الحكومة", "الرئيس", "البرلمان", "توقعات الطقس", "what time", "current time", "weather", "temperature outside", "dollar rate", "exchange rate", "currency", "bitcoin", "crypto", "news", "politics", "election", "football", "soccer", "match", "stock market", "stock price"]
+
 _MEDICAL_SYMPTOM_KEYWORDS_AR: List[str] = ["دوخة", "دوخه", "دوار", "صداع", "الصداع", "تعب", "وجع راس", "وجع الراس", "حاسه بتعب", "حاسس بتعب", "حاسة بتعب", "ضيق تنفس", "قلبي بيدق", "عندي ألم", "عندي وجع", "سخونة", "حرارة عالية"]
+
 _MEDICAL_SYMPTOM_KEYWORDS_EN: List[str] = ["feel dizzy", "feeling dizzy", "i feel dizzy", "i feel sick", "i feel unwell", "headache", "i have a headache", "chest pain", "shortness of breath", "i feel tired", "i'm tired", "i am tired", "not feeling well", "feeling weak"]
+
 _LEGAL_KEYWORDS_AR: List[str] = ["أرفع قضية", "ارفع قضية", "قضية", "محكمة", "محامي", "حقوقي", "دعوى", "مقاضاة"]
+
 _LEGAL_KEYWORDS_EN: List[str] = ["sue", "lawsuit", "file a case", "legal action", "attorney", "court", "can i sue"]
+
 _FINANCIAL_KEYWORDS_AR: List[str] = ["أستثمر فلوسي", "استثمر فلوسي", "استثمار", "الأسهم", "البورصة", "فلوسي فين", "عملات", "بيتكوين"]
+
 _FINANCIAL_KEYWORDS_EN: List[str] = ["invest my money", "should i invest", "stock market", "bitcoin", "crypto", "financial advice"]
+
 _HARMFUL_KEYWORDS_AR: List[str] = ["إزاي أعمل حاجة تضر", "أضر حد", "اضر حد", "أضر ناس", "إزاي أهاجم", "قرصنة", "اختراق"]
+
 _HARMFUL_KEYWORDS_EN: List[str] = ["how to hack", "hacking", "how to harm", "how to hurt", "how to attack", "malware", "exploit"]
+
 _BROWSE_PRODUCTS_KEYWORDS_AR: List[str] = ["قولي كل المنتجات", "كل المنتجات", "عرض كل المنتجات", "المنتجات المتوفرة", "ايه المنتجات المتوفرة", "المنتجات الموجودة", "شوف المنتجات", "وريني المنتجات", "عندكم ايه", "المنتجات كلها"]
+
 _BROWSE_PRODUCTS_KEYWORDS_EN: List[str] = ["show all products", "all products", "list products", "available products", "what products do you have", "show me products", "products list", "tell me all products"]
+
 _NO_RECOMMEND_INTENTS = frozenset(["order_tracking", "greeting", "memory_check", "goodbye", "cancel_purchase", "cancellation", "complaint", "damaged_item", "missing_item", "out_of_scope", "unknown", "payment", "feedback", "delay", "purchase", "purchase_intent", "provide_phone", "provide_quantity", "provide_address", "introduce_name", "order_confirmed", "confirmation", "browse_products", "order_created"])
+
 _FOLLOW_UP_INTENTS = frozenset(["purchase", "purchase_intent", "confirmation", "price_inquiry", "product_details", "provide_address", "provide_phone", "provide_quantity", "introduce_name"])
+
 _PRODUCT_INTENTS = frozenset(["recommendation_request", "product_search", "product_inquiry", "product_details", "price_inquiry", "inquiry", "browse_products"])
+
 _VAGUE_SIGNALS = frozenset(["رشحلي", "اقترح", "عايز", "عايزة", "بدور", "suggest", "recommend", "need", "find"])
+
 _RE_GIBBERISH = re.compile(r"^[^a-zA-Z\u0600-\u06FF\d]{3,}$|^(.)\1{4,}$|^[a-z]{6,}$", re.UNICODE)
+
 _MIN_ALPHA_RATIO = 0.4
 _INTENT_CONFIDENCE_THRESHOLD = 0.40
 _PURCHASE_MIN_CONFIDENCE = 0.70
-_API_BASE_URL = "http://localhost:8000"
-def _enrich_with_shopify_variant(rec: Dict, shopify_products: List[Dict]) -> Dict:
+_SHOPIFY_ENABLED = (
+    os.getenv("SHOPIFY_ENABLED", "false")
+    .strip()
+    .lower()
+    in {"1", "true", "yes", "on"}
+)
+
+def _enrich_with_shopify_variant(
+    rec: Dict,
+    shopify_products: List[Dict],
+) -> Dict:
     if rec.get("variant_id"):
-        return rec 
-    rec_name = (rec.get("name") or rec.get("title", "")).lower().strip()
+        return rec
+    rec_name = (
+        rec.get("name")
+        or rec.get("title", "")
+    ).lower().strip()
     if not rec_name:
         return rec
     best_match = None
     best_score = 0
-    for sp in shopify_products:
-        sp_name = (sp.get("name") or sp.get("title", "")).lower().strip()
-        if not sp_name:
+    for shopify_product in shopify_products:
+        shopify_name = (
+            shopify_product.get("name")
+            or shopify_product.get("title", "")
+        ).lower().strip()
+        if not shopify_name:
             continue
-        if rec_name == sp_name:
-            best_match = sp
+        if rec_name == shopify_name:
+            best_match = shopify_product
             break
-        if rec_name in sp_name or sp_name in rec_name:
-            score = len(set(rec_name.split()) & set(sp_name.split()))
+        if rec_name in shopify_name or shopify_name in rec_name:
+            score = len(
+                set(rec_name.split())
+                & set(shopify_name.split())
+            )
             if score > best_score:
                 best_score = score
-                best_match = sp
-    if best_match:
-        enriched = {**rec}
-        enriched["variant_id"] = best_match["variant_id"]
-        enriched["id"] = best_match.get("id", rec.get("id"))
-        if not enriched.get("price") and best_match.get("price"):
-            enriched["price"] = best_match["price"]
-        return enriched
-    return rec
+                best_match = shopify_product
+    if not best_match:
+        return rec
+    enriched = {**rec}
+    enriched["variant_id"] = best_match.get("variant_id")
+    enriched["shopify_product_id"] = best_match.get("id")
+    enriched["shopify_source"] = True
+    if not enriched.get("price") and best_match.get("price"):
+        enriched["price"] = best_match["price"]
+    return enriched
+
+def _safe_shopify_products() -> List[Dict]:
+    if not _SHOPIFY_ENABLED:
+        return []
+    try:
+        products = get_shopify_products()
+        if isinstance(products, list):
+            return products
+        logger.warning(
+            "Shopify returned an unexpected products payload: %r",
+            type(products),
+        )
+    except Exception as exc:
+        logger.warning(
+            "Shopify catalogue is unavailable; using local products: %s",
+            exc,
+        )
+    return []
+
+def fetch_all_products() -> List[Dict]:
+    try:
+        local_products = get_local_catalog_products(limit=50)
+    except Exception as exc:
+        logger.error(
+            "Failed to load local catalogue: %s",
+            exc,
+            exc_info=True,
+        )
+        local_products = []
+    shopify_products = _safe_shopify_products()
+    if local_products:
+        if not shopify_products:
+            return local_products
+        return [
+            _enrich_with_shopify_variant(
+                product,
+                shopify_products,
+            )
+            for product in local_products
+        ]
+    normalized_shopify_products: List[Dict] = []
+    for product in shopify_products:
+        normalized_product = {**product}
+        normalized_product.setdefault("source", "shopify")
+        normalized_product.setdefault(
+            "shopify_product_id",
+            product.get("id"),
+        )
+        normalized_shopify_products.append(normalized_product)
+    return normalized_shopify_products
+
+def format_shopify_products_response(
+    products: List[Dict],
+    language: str,
+) -> str:
+    if not products:
+        if language == "ar":
+            return "عذراً، لا توجد منتجات متاحة حالياً."
+        return "Sorry, no products are currently available."
+    if language == "ar":
+        lines = ["🛍️ المنتجات المتاحة:\n"]
+        for index, product in enumerate(products[:10], 1):
+            name = product.get("name") or product.get(
+                "title",
+                "منتج",
+            )
+            price = product.get("price", "")
+            description = product.get("description", "")
+            price_text = ""
+            if price:
+                try:
+                    price_text = f"{int(float(price))} جنيه"
+                except Exception:
+                    price_text = f"{price} جنيه"
+            lines.append(f"{index}️⃣ {name}")
+            if price_text:
+                lines.append(f"💰 السعر: {price_text}")
+            if description:
+                shortened = description[:100]
+                suffix = "..." if len(description) > 100 else ""
+                lines.append(f"📝 {shortened}{suffix}")
+            lines.append("")
+        lines.append("💬 اختاري رقم المنتج لمعرفة التفاصيل أو الطلب.")
+        return "\n".join(lines)
+    lines = ["🛍️ Available products:\n"]
+    for index, product in enumerate(products[:10], 1):
+        name = product.get("name") or product.get(
+            "title",
+            "Product",
+        )
+        price = product.get("price", "")
+        description = product.get("description", "")
+        price_text = ""
+        if price:
+            try:
+                price_text = f"{int(float(price))} EGP"
+            except Exception:
+                price_text = f"{price} EGP"
+        lines.append(f"{index}. {name}")
+        if price_text:
+            lines.append(f"💰 Price: {price_text}")
+        if description:
+            shortened = description[:100]
+            suffix = "..." if len(description) > 100 else ""
+            lines.append(f"📝 {shortened}{suffix}")
+        lines.append("")
+    lines.append("💬 Choose a product number for details or ordering.")
+    return "\n".join(lines)
+
 def is_purchase_trigger(message: str, intent: str) -> bool:
     purchase_triggers = frozenset([
         "أيوه", "ايوه", "تمام", "اطلبه", "أطلبه", "اطلب", "اشتري", "عايزة أشتريه",
@@ -81,6 +247,7 @@ def is_purchase_trigger(message: str, intent: str) -> bool:
         if kw in tl:
             return True
     return False
+
 def is_order_tracking_query(message: str, intent: str) -> bool:
     tl = message.lower().strip()
     if intent == "order_tracking":
@@ -89,77 +256,7 @@ def is_order_tracking_query(message: str, intent: str) -> bool:
         if kw in tl:
             return True
     return False
-def fetch_all_products() -> List[Dict]:
-    try:
-        response = requests.get(f"{_API_BASE_URL}/api/v1/products/", timeout=10)
-        response.raise_for_status()
-        data = response.json()
-        if isinstance(data, list):
-            return data
-        elif isinstance(data, dict) and "results" in data:
-            return data["results"]
-        elif isinstance(data, dict) and "data" in data:
-            return data["data"]
-        return []
-    except requests.RequestException as e:
-        logger.error(f"Failed to fetch products: {e}")
-        return []
-    except Exception as e:
-        logger.error(f"Unexpected error fetching products: {e}")
-        return []
-def format_shopify_products_response(products: List[Dict], language: str) -> str:
-    if not products:
-        if language == "ar":
-            return "عذراً، لا توجد منتجات متاحة حالياً من Shopify."
-        return "Sorry, no products are currently available from Shopify."
-    if language == "ar":
-        lines = ["🛍️ منتجات Shopify المتاحة:\n"]
-        for idx, product in enumerate(products[:10], 1):
-            name = product.get("name") or product.get("title", "منتج")
-            price = product.get("price", "")
-            description = product.get("description", "")
-            price_text = ""
-            if price:
-                try:
-                    price_float = float(price)
-                    price_text = f"{int(price_float)} جنيه"
-                except Exception:
-                    price_text = f"{price} جنيه"
-            desc_text = ""
-            if description:
-                desc_text = f"\n📝 {description[:100]}{'...' if len(description) > 100 else ''}"
-            lines.append(f"{idx}️⃣ {name}")
-            if price_text:
-                lines.append(f"💰 السعر: {price_text}")
-            if desc_text:
-                lines.append(desc_text.strip())
-            lines.append("")
-        lines.append("💬 تحبي تفاصيل عن أي منتج؟ 😊")
-        return "\n".join(lines)
-    else:
-        lines = ["🛍️ Available Shopify Products:\n"]
-        for idx, product in enumerate(products[:10], 1):
-            name = product.get("name") or product.get("title", "Product")
-            price = product.get("price", "")
-            description = product.get("description", "")
-            price_text = ""
-            if price:
-                try:
-                    price_float = float(price)
-                    price_text = f"{int(price_float)} EGP"
-                except Exception:
-                    price_text = f"{price} EGP"
-            desc_text = ""
-            if description:
-                desc_text = f"\n📝 {description[:100]}{'...' if len(description) > 100 else ''}"
-            lines.append(f"{idx}. {name}")
-            if price_text:
-                lines.append(f"💰 Price: {price_text}")
-            if desc_text:
-                lines.append(desc_text.strip())
-            lines.append("")
-        lines.append("💬 Need details about any product? 😊")
-        return "\n".join(lines)
+
 def is_browse_products_query(message: str, intent: str) -> bool:
     tl = message.lower().strip()
     if intent == "browse_products":
@@ -171,6 +268,7 @@ def is_browse_products_query(message: str, intent: str) -> bool:
         if kw in tl:
             return True
     return False
+
 @dataclass
 class SignalBundle:
     message: str = ""
@@ -194,6 +292,9 @@ class SignalBundle:
     email: Optional[str] = None
     quantity: Optional[int] = None
     order_id: Optional[int] = None
+    authenticated_user_id: Optional[int] = None
+    local_order_number: Optional[str] = None
+    tracking_token: Optional[str] = None
     last_product_id: Optional[int] = None
     last_product_variant_id: Optional[str] = None
     last_intent: Optional[str] = None
@@ -205,19 +306,34 @@ class SignalBundle:
     shopify_draft_order_id: Optional[str] = None
     shopify_draft_order_name: Optional[str] = None
     shopify_invoice_url: Optional[str] = None
+    shopify_sync_status: str = "not_attempted"
+    shopify_sync_error: Optional[str] = None
     checkout_intent: str = ""
     checkout_entities: Dict[str, Any] = field(default_factory=dict)
     next_action: str = ""
     checkout_ai_parse_failed: bool = False
+    checkout_mode: str = "ai"
+    checkout_fallback_used: bool = False
+    ticket_id: Optional[int] = None
+    ticket_number: Optional[str] = None
+    ticket_status: Optional[str] = None
+    human_handoff: bool = False
+    complaint_state: str = "idle"
+    _conv: Any = None
+
     def confidence_score(self) -> float:
         return self.intent_conf * 0.5 + self.sentiment_conf * 0.3 + (0.2 if self.recommendations else 0.0)
+
     def trace(self, stage: str) -> None:
         self.routing_trace.append(stage)
+
     @property
     def is_any_safety_flag(self) -> bool:
         return self.is_medical_symptom or self.is_legal_advice or self.is_financial_advice or self.is_harmful
+
 class _ModelRegistry:
     _store: Dict[str, Any] = {}
+
     @classmethod
     def get(cls, key: str) -> Optional[Any]:
         if key in cls._store:
@@ -241,6 +357,7 @@ class _ModelRegistry:
             logger.error("Failed to load model '%s': %s", key, exc, exc_info=True)
             cls._store[key] = None
         return cls._store.get(key)
+
 class _LanguageDetector:
     @staticmethod
     def run(bundle: SignalBundle) -> None:
@@ -268,6 +385,7 @@ class _LanguageDetector:
             if keyword in tl:
                 bundle.entities["product_name"] = keyword
                 break
+
 class _SafetyLayer:
     @staticmethod
     def _check_keywords(text: str, ar_list: List[str], en_list: List[str]) -> bool:
@@ -278,6 +396,7 @@ class _SafetyLayer:
             if kw in text:
                 return True
         return False
+
     @staticmethod
     def run(bundle: SignalBundle) -> bool:
         bundle.trace("safety_layer")
@@ -323,6 +442,405 @@ class _SafetyLayer:
                 bundle.recommendation_method = "none"
                 return True
         return False
+
+class _TicketTrackingStage:
+    @staticmethod
+    def run(bundle: SignalBundle, conv) -> bool:
+        if conv is None:
+            return False
+
+        if not is_ticket_tracking_request(bundle.message):
+            return False
+
+        bundle.trace("ticket_tracking_stage")
+
+        user = _ComplaintStage._get_user(bundle, conv)
+
+        if user is None:
+            bundle.intent = "complaint_auth_required"
+            bundle.intent_conf = 1.0
+            bundle.response_conf = 0.98
+            bundle.response = (
+                "Please sign in to track your support tickets."
+                if bundle.language == "en"
+                else "من فضلك سجل الدخول لمتابعة الشكاوى."
+            )
+            return True
+
+        ticket_number = extract_ticket_number(bundle.message)
+
+        ticket = get_ticket_for_user(
+            user,
+            ticket_number=ticket_number,
+        )
+
+        if ticket is None:
+            bundle.intent = "complaint_not_found"
+            bundle.intent_conf = 1.0
+            bundle.response_conf = 0.95
+            bundle.response = (
+                "I could not find a support ticket linked to your account."
+                if bundle.language == "en"
+                else "لم أجد شكوى مرتبطة بحسابك."
+            )
+            bundle.ticket_id = None
+            bundle.ticket_number = None
+            bundle.ticket_status = None
+            bundle.human_handoff = False
+            return True
+
+        admin_response = (
+            ticket.admin_response.strip()
+            if ticket.admin_response
+            else ""
+        )
+
+        assigned_to = (
+            ticket.assigned_to.email
+            if ticket.assigned_to
+            else None
+        )
+
+        if bundle.language == "en":
+            response_lines = [
+                f"🎫 Ticket number: {ticket.ticket_number}",
+                f"📌 Issue: {ticket.get_issue_type_display()}",
+                f"📍 Status: {ticket.get_status_display()}",
+                f"⚠️ Priority: {ticket.get_priority_display()}",
+            ]
+
+            if assigned_to:
+                response_lines.append(
+                    f"👤 Assigned to: {assigned_to}"
+                )
+
+            response_lines.append(
+                f"💬 Admin response: "
+                f"{admin_response or 'No response yet'}"
+            )
+        else:
+            response_lines = [
+                f"🎫 رقم الشكوى: {ticket.ticket_number}",
+                f"📌 نوع المشكلة: {ticket.get_issue_type_display()}",
+                f"📍 الحالة: {ticket.get_status_display()}",
+                f"⚠️ الأولوية: {ticket.get_priority_display()}",
+            ]
+
+            if assigned_to:
+                response_lines.append(
+                    f"👤 المسؤول: {assigned_to}"
+                )
+
+            response_lines.append(
+                f"💬 رد الإدارة: "
+                f"{admin_response or 'لا يوجد رد حتى الآن'}"
+            )
+
+        active_statuses = {
+            SupportTicket.Status.OPEN,
+            SupportTicket.Status.IN_PROGRESS,
+            SupportTicket.Status.WAITING_FOR_CUSTOMER,
+        }
+
+        bundle.intent = "complaint_tracking"
+        bundle.intent_conf = 1.0
+        bundle.response = "\n".join(response_lines)
+        bundle.response_conf = 0.98
+        bundle.recommendations = []
+        bundle.recommendation_method = "none"
+
+        bundle.ticket_id = ticket.id
+        bundle.ticket_number = ticket.ticket_number
+        bundle.ticket_status = ticket.status
+        bundle.human_handoff = ticket.status in active_statuses
+        bundle.complaint_state = getattr(
+            conv,
+            "complaint_state",
+            "idle",
+        )
+
+        return True
+
+class _ComplaintStage:
+    YES_WORDS = {
+        "yes",
+        "yeah",
+        "correct",
+        "right",
+        "نعم",
+        "ايوه",
+        "أيوه",
+        "اه",
+        "آه",
+        "صح",
+        "تمام",
+    }
+
+    NO_WORDS = {
+        "no",
+        "wrong",
+        "لا",
+        "لأ",
+        "مش هو",
+        "مش ده",
+    }
+
+    @staticmethod
+    def _get_user(bundle: SignalBundle, conv):
+        user_id = (
+            bundle.authenticated_user_id
+            or getattr(conv, "user_id", None)
+        )
+        if not user_id:
+            return None
+        User = get_user_model()
+        return User.objects.filter(id=user_id).first()
+
+    @staticmethod
+    def _get_order(bundle: SignalBundle, conv, user):
+        Order = apps.get_model("orders", "Order")
+        order_id = (
+            getattr(conv, "complaint_order_id", None)
+            or getattr(conv, "order_id", None)
+        )
+        if order_id:
+            queryset = Order.objects.filter(id=order_id)
+            if not user.is_staff:
+                queryset = queryset.filter(user=user)
+            order = queryset.first()
+            if order:
+                return order
+        return get_latest_order_for_user(user)
+
+    @staticmethod
+    def _set_common_metadata(bundle: SignalBundle, conv) -> None:
+        bundle.human_handoff = True
+        bundle.complaint_state = getattr(
+            conv,
+            "complaint_state",
+            "idle",
+        )
+        bundle.recommendations = []
+        bundle.recommendation_method = "none"
+        bundle.response_conf = 0.98
+
+    @staticmethod
+    def run(bundle: SignalBundle, conv) -> bool:
+        if conv is None:
+            return False
+
+        bundle.trace("complaint_stage")
+
+        state = getattr(conv, "complaint_state", "idle")
+        detected_issue = detect_issue_type(bundle.message)
+        normalized_message = bundle.message.strip().lower()
+
+        if state == "idle" and not detected_issue:
+            return False
+
+        user = _ComplaintStage._get_user(bundle, conv)
+
+        if user is None:
+            bundle.intent = "complaint_auth_required"
+            bundle.response = (
+                "Please sign in before creating a support ticket."
+                if bundle.language == "en"
+                else "من فضلك سجل الدخول أولًا قبل إنشاء شكوى."
+            )
+            bundle.human_handoff = False
+            bundle.response_conf = 0.98
+            return True
+
+        if state == "idle":
+            order = _ComplaintStage._get_order(
+                bundle,
+                conv,
+                user,
+            )
+
+            if order is None:
+                bundle.intent = "complaint_order_not_found"
+                bundle.response = (
+                    "I could not find an order linked to your account. "
+                    "Please provide your order number."
+                    if bundle.language == "en"
+                    else
+                    "لم أجد طلبًا مرتبطًا بحسابك. "
+                    "من فضلك أرسل رقم الطلب."
+                )
+                bundle.human_handoff = True
+                bundle.response_conf = 0.95
+                return True
+
+            conv.complaint_state = (
+                conv.ComplaintState.AWAITING_ORDER_CONFIRMATION
+            )
+            conv.complaint_issue_type = detected_issue
+            conv.complaint_order_id = order.id
+            conv.save(
+                update_fields=[
+                    "complaint_state",
+                    "complaint_issue_type",
+                    "complaint_order_id",
+                ]
+            )
+
+            bundle.intent = "complaint_order_confirmation"
+            bundle.response = (
+                f"I'm sorry about that. Do you mean order "
+                f"{order.order_number}?"
+                if bundle.language == "en"
+                else
+                f"آسف بخصوص المشكلة دي. هل تقصد الطلب "
+                f"{order.order_number}؟"
+            )
+
+            _ComplaintStage._set_common_metadata(bundle, conv)
+            return True
+
+        if state == "awaiting_order_confirmation":
+            if normalized_message in _ComplaintStage.YES_WORDS:
+                conv.complaint_state = (
+                    conv.ComplaintState.AWAITING_DESCRIPTION
+                )
+                conv.save(update_fields=["complaint_state"])
+
+                bundle.intent = "complaint_description_required"
+                bundle.response = (
+                    "Please describe the problem in more detail."
+                    if bundle.language == "en"
+                    else
+                    "من فضلك وضّح المشكلة بالتفصيل."
+                )
+
+                _ComplaintStage._set_common_metadata(bundle, conv)
+                return True
+
+            if normalized_message in _ComplaintStage.NO_WORDS:
+                conv.complaint_state = conv.ComplaintState.IDLE
+                conv.complaint_issue_type = ""
+                conv.complaint_order_id = None
+                conv.save(
+                    update_fields=[
+                        "complaint_state",
+                        "complaint_issue_type",
+                        "complaint_order_id",
+                    ]
+                )
+
+                bundle.intent = "complaint_order_required"
+                bundle.response = (
+                    "Please send the correct order number with the problem."
+                    if bundle.language == "en"
+                    else
+                    "من فضلك أرسل رقم الطلب الصحيح مع وصف المشكلة."
+                )
+
+                _ComplaintStage._set_common_metadata(bundle, conv)
+                return True
+
+            bundle.intent = "complaint_order_confirmation"
+            bundle.response = (
+                "Please answer yes or no."
+                if bundle.language == "en"
+                else "من فضلك أجب بنعم أو لا."
+            )
+
+            _ComplaintStage._set_common_metadata(bundle, conv)
+            return True
+
+        if state == "awaiting_description":
+            description = bundle.message.strip()
+
+            if len(description) < 10:
+                bundle.intent = "complaint_description_required"
+                bundle.response = (
+                    "Please provide more details about the problem."
+                    if bundle.language == "en"
+                    else
+                    "من فضلك اكتب تفاصيل أكثر عن المشكلة."
+                )
+
+                _ComplaintStage._set_common_metadata(bundle, conv)
+                return True
+
+            Order = apps.get_model("orders", "Order")
+
+            order = Order.objects.filter(
+                id=conv.complaint_order_id,
+                user=user,
+            ).first()
+
+            if order is None:
+                bundle.intent = "complaint_order_not_found"
+                bundle.response = (
+                    "The linked order could not be found."
+                    if bundle.language == "en"
+                    else "لم يتم العثور على الطلب المرتبط بالشكوى."
+                )
+                bundle.human_handoff = True
+                bundle.response_conf = 0.95
+                return True
+
+            issue_type = (
+                conv.complaint_issue_type
+                or SupportTicket.IssueType.OTHER
+            )
+
+            ticket, created = create_support_ticket(
+                user=user,
+                conversation=conv,
+                order=order,
+                issue_type=issue_type,
+                description=description,
+            )
+
+            conv.complaint_ticket = ticket
+            conv.complaint_state = conv.ComplaintState.IDLE
+            conv.complaint_issue_type = ""
+            conv.complaint_order_id = None
+            conv.save(
+                update_fields=[
+                    "complaint_ticket",
+                    "complaint_state",
+                    "complaint_issue_type",
+                    "complaint_order_id",
+                ]
+            )
+
+            bundle.ticket_id = ticket.id
+            bundle.ticket_number = ticket.ticket_number
+            bundle.ticket_status = ticket.status
+            bundle.intent = (
+                "complaint_created"
+                if created
+                else "complaint_already_exists"
+            )
+
+            if created:
+                bundle.response = (
+                    f"Your support ticket was created successfully. "
+                    f"Ticket number: {ticket.ticket_number}."
+                    if bundle.language == "en"
+                    else
+                    f"تم إنشاء الشكوى بنجاح. "
+                    f"رقم التذكرة: {ticket.ticket_number}."
+                )
+            else:
+                bundle.response = (
+                    f"You already have an active ticket: "
+                    f"{ticket.ticket_number}."
+                    if bundle.language == "en"
+                    else
+                    f"لديك بالفعل شكوى مفتوحة برقم "
+                    f"{ticket.ticket_number}."
+                )
+
+            _ComplaintStage._set_common_metadata(bundle, conv)
+            return True
+
+        return False
+
 class _OrderTrackingStage:
     @staticmethod
     def run(bundle: SignalBundle) -> bool:
@@ -330,28 +848,125 @@ class _OrderTrackingStage:
         in_active_flow = bundle.purchase_state != PurchaseState.IDLE
         if in_active_flow:
             tl = bundle.message.lower().strip()
-            has_explicit_tracking = any(kw in tl for kw in _TRACKING_TRIGGER_WORDS)
+            has_explicit_tracking = any(
+                keyword in tl
+                for keyword in _TRACKING_TRIGGER_WORDS
+            )
             if not has_explicit_tracking:
                 return False
-        else:
-            if not is_order_tracking_query(bundle.message, bundle.intent):
-                return False
+        elif not is_order_tracking_query(
+            bundle.message,
+            bundle.intent,
+        ):
+            return False
+        order_obj = None
+        if bundle.order_id:
+            try:
+                Order = apps.get_model("orders", "Order")
+                order_obj = (
+                    Order.objects
+                    .prefetch_related("tracking_updates")
+                    .filter(pk=bundle.order_id)
+                    .first()
+                )
+            except Exception as exc:
+                logger.warning(
+                    "Could not load local order %s: %s",
+                    bundle.order_id,
+                    exc,
+                )
+        requested_order_number = bundle.entities.get(
+            "order_number"
+        )
+        if (
+            order_obj
+            and requested_order_number
+            and order_obj.order_number.lower()
+            != requested_order_number.lower()
+        ):
+            order_obj = None
+        if order_obj:
+            bundle.local_order_number = order_obj.order_number
+            bundle.entities["order_number"] = order_obj.order_number
+            bundle.intent = "order_tracking"
+            bundle.intent_conf = 1.0
+            bundle.purchase_state = PurchaseState.IDLE
+            bundle.response_conf = 0.98
+            status_label = order_obj.get_status_display()
+            tracking_number = (
+                order_obj.tracking_number
+                or (
+                    "غير متوفر حالياً"
+                    if bundle.language == "ar"
+                    else "Not available yet"
+                )
+            )
+            latest_update = (
+                order_obj.tracking_updates
+                .order_by("-date", "-id")
+                .first()
+            )
+            latest_location = (
+                latest_update.location
+                if latest_update
+                else (
+                    "غير متوفر"
+                    if bundle.language == "ar"
+                    else "Not available"
+                )
+            )
+            invoice_url = bundle.shopify_invoice_url
+            if not invoice_url and bundle.last_product_snapshot:
+                invoice_url = bundle.last_product_snapshot.get(
+                    "shopify_invoice_url"
+                )
+            if bundle.language == "ar":
+                bundle.response = (
+                    f"📦 رقم الطلب: {order_obj.order_number}\n"
+                    f"📍 الحالة: {status_label}\n"
+                    f"🚚 رقم التتبع: {tracking_number}\n"
+                    f"🏢 آخر موقع: {latest_location}"
+                )
+                if invoice_url:
+                    bundle.response += (
+                        f"\n💳 رابط الدفع: {invoice_url}"
+                    )
+            else:
+                bundle.response = (
+                    f"📦 Order number: {order_obj.order_number}\n"
+                    f"📍 Status: {status_label}\n"
+                    f"🚚 Tracking number: {tracking_number}\n"
+                    f"🏢 Latest location: {latest_location}"
+                )
+                if invoice_url:
+                    bundle.response += (
+                        f"\n💳 Payment link: {invoice_url}"
+                    )
+            return True
         draft_order_id = bundle.shopify_draft_order_id
         draft_order_name = bundle.shopify_draft_order_name
         invoice_url = bundle.shopify_invoice_url
         if not draft_order_id and bundle.last_product_snapshot:
-            draft_order_id = bundle.last_product_snapshot.get("shopify_draft_order_id")
-            draft_order_name = bundle.last_product_snapshot.get("shopify_draft_order_name")
-            invoice_url = bundle.last_product_snapshot.get("shopify_invoice_url")
+            draft_order_id = bundle.last_product_snapshot.get(
+                "shopify_draft_order_id"
+            )
+            draft_order_name = bundle.last_product_snapshot.get(
+                "shopify_draft_order_name"
+            )
+            invoice_url = bundle.last_product_snapshot.get(
+                "shopify_invoice_url"
+            )
         if draft_order_id and invoice_url:
             if bundle.language == "ar":
                 bundle.response = (
-                    f"طلبك {draft_order_name} متجهز ولسه في انتظار الدفع.\n"
+                    f"طلبك {draft_order_name} متجهز "
+                    f"ولسه في انتظار الدفع.\n"
                     f"رابط الدفع: {invoice_url}"
                 )
             else:
                 bundle.response = (
-                    f"Your order {draft_order_name} is ready and awaiting payment.\n"
+                    f"Your order {draft_order_name} is ready "
+                    f"and awaiting payment.\n"
                     f"Payment link: {invoice_url}"
                 )
             bundle.response_conf = 0.98
@@ -361,16 +976,19 @@ class _OrderTrackingStage:
             return True
         if bundle.language == "ar":
             bundle.response = (
-                "معنديش طلب محفوظ ليكي حالياً. اختاري منتج وابدأي طلب جديد."
+                "معنديش طلب محفوظ ليكي حالياً. "
+                "اختاري منتج وابدأي طلب جديد."
             )
         else:
             bundle.response = (
-                "I don't have any saved order for you. Please select a product and start a new order."
+                "I don't have any saved order for you. "
+                "Please select a product and start a new order."
             )
         bundle.response_conf = 0.98
         bundle.intent = "order_tracking"
         bundle.intent_conf = 1.0
         return True
+
 class _CheckoutAIStage:
     @staticmethod
     def _build_checkout_prompt(bundle: SignalBundle, product_name: str) -> str:
@@ -388,9 +1006,9 @@ class _CheckoutAIStage:
                 f"{collection_status}\n"
                 f"رسالة المستخدم: {bundle.message}\n"
                 f"أخرج JSON فقط (بدون أي كلام آخر) بالشكل التالي:\n"
-                f'{ \n"checkout_intent": "start_checkout | provide_name | provide_phone | provide_address | provide_quantity | confirm_order | cancel_order | track_order | unknown",\n'
-                f'"entities": { \n"name": "اسم المستخدم إذا ذكره في هذه الرسالة، وإلا null",\n"phone": "رقم الهاتف إذا ذكره في هذه الرسالة، وإلا null",\n"address": "العنوان إذا ذكره في هذه الرسالة، وإلا null",\n"quantity": "الكمية إذا ذكرها في هذه الرسالة (رقم فقط)، وإلا null"\n} ,\n'
-                f'"next_action": "ask_name | ask_phone | ask_address | ask_quantity | create_shopify_draft_order | track_order | cancel | clarify"\n} \n'
+                '{\n"checkout_intent": "start_checkout | provide_name | provide_phone | provide_address | provide_quantity | confirm_order | cancel_order | track_order | unknown",\n'
+                f'"entities": {{ \n"name": "اسم المستخدم إذا ذكره في هذه الرسالة، وإلا null",\n"phone": "رقم الهاتف إذا ذكره في هذه الرسالة، وإلا null",\n"address": "العنوان إذا ذكره في هذه الرسالة، وإلا null",\n"quantity": "الكمية إذا ذكرها في هذه الرسالة (رقم فقط)، وإلا null"\n}} ,\n'
+                f'"next_action": "ask_name | ask_phone | ask_address | ask_quantity | create_shopify_draft_order | track_order | cancel | clarify"\n}} \n'
                 f"قواعد مهمة:\n"
                 f"- لا تخرج أي شيء بجانب الـ JSON.\n"
                 f"- لا تخترع بيانات غير موجودة في الرسالة.\n"
@@ -411,15 +1029,16 @@ class _CheckoutAIStage:
                 f"{collection_status}\n"
                 f"User message: {bundle.message}\n"
                 f"Output ONLY JSON (no extra text) in the following format:\n"
-                f'{ \n"checkout_intent": "start_checkout | provide_name | provide_phone | provide_address | provide_quantity | confirm_order | cancel_order | track_order | unknown",\n'
-                f'"entities": { \n"name": "user name if mentioned in this message, else null",\n"phone": "phone number if mentioned in this message, else null",\n"address": "address if mentioned in this message, else null",\n"quantity": "quantity if mentioned in this message (number only), else null"\n} ,\n'
-                f'"next_action": "ask_name | ask_phone | ask_address | ask_quantity | create_shopify_draft_order | track_order | cancel | clarify"\n} \n'
+                f'{{ \n"checkout_intent": "start_checkout | provide_name | provide_phone | provide_address | provide_quantity | confirm_order | cancel_order | track_order | unknown",\n'
+                f'"entities": {{ \n"name": "user name if mentioned in this message, else null",\n"phone": "phone number if mentioned in this message, else null",\n"address": "address if mentioned in this message, else null",\n"quantity": "quantity if mentioned in this message (number only), else null"\n}} ,\n'
+                f'"next_action": "ask_name | ask_phone | ask_address | ask_quantity | create_shopify_draft_order | track_order | cancel | clarify"\n}} \n'
                 f"Important rules:\n"
                 f"- Output ONLY JSON, no other text.\n"
                 f"- Do not invent data not present in the message.\n"
                 f"- If all data is collected: next_action = \"create_shopify_draft_order\"\n"
                 f"- If user says yes/okay/sure/proceed: checkout_intent = \"confirm_order\" and next_action based on missing data."
             )
+
     @staticmethod
     def _parse_ai_response(raw_response: str) -> Optional[Dict]:
         try:
@@ -436,6 +1055,7 @@ class _CheckoutAIStage:
             except Exception:
                 pass
             return None
+
     @staticmethod
     def _apply_entities_to_bundle(bundle: SignalBundle, ai_output: Dict) -> None:
         entities = ai_output.get("entities", {})
@@ -459,48 +1079,100 @@ class _CheckoutAIStage:
                     bundle.quantity = qty
             except (ValueError, TypeError):
                 pass
+
     @staticmethod
     def run(bundle: SignalBundle) -> bool:
         bundle.trace("checkout_ai_stage")
-        in_active_flow = bundle.purchase_state != PurchaseState.IDLE
+        
+        active_checkout_states = {
+            PurchaseState.AWAITING_NAME,
+            PurchaseState.AWAITING_PHONE,
+            PurchaseState.AWAITING_ADDRESS,
+            PurchaseState.AWAITING_QUANTITY,
+            PurchaseState.READY_TO_ORDER,
+        }
+        
+        in_active_flow = bundle.purchase_state in active_checkout_states
+        
         is_new_purchase = (
             bundle.purchase_state == PurchaseState.IDLE
             and bundle.last_product_snapshot is not None
             and is_purchase_trigger(bundle.message, bundle.intent)
         )
+        
         if not in_active_flow and not is_new_purchase:
             return False
+            
+        if in_active_flow:
+            bundle.checkout_mode = "state_machine"
+            bundle.checkout_fallback_used = True
+            bundle.checkout_ai_parse_failed = False
+            checkout_intent, next_action = _CheckoutAIStage._fallback_intent(bundle)
+            bundle.checkout_intent = checkout_intent
+            bundle.next_action = next_action
+            
+            if bundle.checkout_intent == "cancel_order" or bundle.next_action == "cancel":
+                bundle.intent = "cancel_purchase"
+                bundle.intent_conf = 1.0
+                bundle.purchase_state = PurchaseState.IDLE
+                if bundle.language == "ar":
+                    bundle.response = "تم إلغاء الطلب 😊 أقدر أساعدك في أي حاجة تانية؟"
+                else:
+                    bundle.response = "Order cancelled. How else can I help you?"
+                bundle.response_conf = 0.95
+                return True
+                
+            if bundle.checkout_intent == "track_order" or bundle.next_action == "track_order":
+                return _OrderTrackingStage.run(bundle)
+                
+            return False
+            
         product_name = ""
         if bundle.last_product_snapshot:
             product_name = (
                 bundle.last_product_snapshot.get("name")
                 or bundle.last_product_snapshot.get("title", "المنتج")
             )
+            
         ai_output = None
         gen_model = _ModelRegistry.get("generation")
+        
         if gen_model and product_name:
             try:
                 prompt = _CheckoutAIStage._build_checkout_prompt(bundle, product_name)
                 result = gen_model.generate(prompt, {"language": bundle.language, "temp": 0.1})
                 raw_output = result.get("response", "")
                 ai_output = _CheckoutAIStage._parse_ai_response(raw_output)
+                
                 if ai_output:
+                    bundle.checkout_mode = "ai"
+                    bundle.checkout_fallback_used = False
                     bundle.checkout_intent = ai_output.get("checkout_intent", "unknown")
                     bundle.checkout_entities = ai_output.get("entities", {})
                     bundle.next_action = ai_output.get("next_action", "clarify")
                     _CheckoutAIStage._apply_entities_to_bundle(bundle, ai_output)
                 else:
                     bundle.checkout_ai_parse_failed = True
+                    bundle.checkout_mode = "ai"
+                    bundle.checkout_fallback_used = True
                     logger.warning("CheckoutAI: failed to parse AI response for message: %s", bundle.message[:100])
             except Exception as exc:
                 bundle.checkout_ai_parse_failed = True
+                bundle.checkout_mode = "ai"
+                bundle.checkout_fallback_used = True
                 logger.error("CheckoutAI: generation error: %s", exc)
         else:
-            bundle.checkout_ai_parse_failed = True
+            bundle.checkout_mode = "ai"
+            bundle.checkout_fallback_used = True
+            logger.debug(
+                "CheckoutAI skipped: generation model or product is unavailable."
+            )
+            
         if bundle.checkout_ai_parse_failed or not ai_output:
             checkout_intent, next_action = _CheckoutAIStage._fallback_intent(bundle)
             bundle.checkout_intent = checkout_intent
             bundle.next_action = next_action
+            
         if bundle.checkout_intent == "cancel_order" or bundle.next_action == "cancel":
             bundle.intent = "cancel_purchase"
             bundle.intent_conf = 1.0
@@ -511,11 +1183,15 @@ class _CheckoutAIStage:
                 bundle.response = "Order cancelled. How else can I help you?"
             bundle.response_conf = 0.95
             return True
+            
         if bundle.checkout_intent == "track_order" or bundle.next_action == "track_order":
             return _OrderTrackingStage.run(bundle)
+            
         if is_new_purchase:
             return StateMachine.start_purchase_flow(bundle, bundle._conv if hasattr(bundle, '_conv') else None)
+            
         return False
+
     @staticmethod
     def _fallback_intent(bundle: SignalBundle) -> Tuple[str, str]:
         tl = bundle.message.lower().strip()
@@ -537,13 +1213,26 @@ class _CheckoutAIStage:
                 return "confirm_order", "ask_quantity"
             return "confirm_order", "create_shopify_draft_order"
         return "unknown", "clarify"
+
 class _ProductSelectionStage:
     @staticmethod
     def _extract_product_number(message: str) -> Optional[int]:
-        match = _RE_PRODUCT_NUMBER.search(message)
-        if match:
-            return int(match.group(1))
+        text = (message or "").strip()
+        patterns = (
+            r"(?:product|item)\s*(?:number|no\.?|#)?\s*[:\-]?\s*(\d{1,3})\b",
+            r"(?:number|no\.?|#)\s*[:\-]?\s*(\d{1,3})\b",
+            r"(?:المنتج|منتج)\s*(?:رقم)?\s*[:\-]?\s*(\d{1,3})\b",
+            r"(?:رقم)\s*[:\-]?\s*(\d{1,3})\b",
+        )
+        for pattern in patterns:
+            match = re.search(pattern, text, re.IGNORECASE)
+            if match:
+                return int(match.group(1))
+        stripped = text.strip()
+        if stripped.isdigit() and 1 <= int(stripped) <= 999:
+            return int(stripped)
         return None
+
     @staticmethod
     def _has_purchase_intent(message: str, intent: str) -> bool:
         tl = message.lower().strip()
@@ -555,6 +1244,7 @@ class _ProductSelectionStage:
             "order", "buy", "purchase", "i want",
         ])
         return any(w in tl for w in purchase_words)
+
     @staticmethod
     def run(bundle: SignalBundle, conv=None) -> bool:
         bundle.trace("product_selection_stage")
@@ -563,7 +1253,7 @@ class _ProductSelectionStage:
             return False
         if bundle.purchase_state != PurchaseState.IDLE:
             return False
-        shopify_products = get_shopify_products()
+        shopify_products = fetch_all_products()
         if not shopify_products:
             if bundle.language == "ar":
                 bundle.response = "عذراً، لا توجد منتجات متاحة حالياً."
@@ -584,13 +1274,16 @@ class _ProductSelectionStage:
             return True
         selected_index = product_number - 1
         selected_product = shopify_products[selected_index].copy()
-        bundle.last_product_id = selected_product.get("id")
+        bundle.last_product_id = (
+            selected_product.get("product_id")
+            or selected_product.get("id")
+        )
         bundle.last_product_variant_id = selected_product.get("variant_id")
         bundle.last_product_snapshot = selected_product
         bundle.recommendations = [selected_product]
         bundle.intent = "product_selected"
         bundle.intent_conf = 1.0
-        bundle.recommendation_method = "shopify_selected"
+        bundle.recommendation_method = "catalog_selected"
         bundle.response_conf = 0.98
         product_name = selected_product.get("name") or selected_product.get("title", "المنتج")
         price = selected_product.get("price", "")
@@ -609,33 +1302,36 @@ class _ProductSelectionStage:
         else:
             bundle.response = f"Great 👌 You selected {product_name}\n💰 Price: {price_text}\n\nDo you want to order it?"
         return True
+
 class _BrowseProductsStage:
     @staticmethod
     def run(bundle: SignalBundle) -> bool:
         bundle.trace("browse_products_stage")
         if is_browse_products_query(bundle.message, bundle.intent):
-            shopify_products = get_shopify_products()
+            shopify_products = fetch_all_products()
             bundle.all_products = shopify_products
             bundle.recommendations = shopify_products
             bundle.response = format_shopify_products_response(shopify_products, bundle.language)
             bundle.response_conf = 0.98
             bundle.intent = "browse_products"
             bundle.intent_conf = 1.0
-            bundle.recommendation_method = "shopify_browse"
+            bundle.recommendation_method = "local_catalog"
             return True
         return False
+
 class _ProductSearchStage:
     @staticmethod
     def run(bundle: SignalBundle) -> bool:
         bundle.trace("product_search_stage")
         if bundle.intent == "product_search":
-            shopify_products = get_shopify_products()
+            shopify_products = fetch_all_products()
             bundle.recommendations = shopify_products
             bundle.response = format_shopify_products_response(shopify_products, bundle.language)
             bundle.response_conf = 0.98
-            bundle.recommendation_method = "shopify_search"
+            bundle.recommendation_method = "local_catalog_search"
             return True
         return False
+
 class _IntentStage:
     @staticmethod
     def run(bundle: SignalBundle) -> None:
@@ -655,6 +1351,7 @@ class _IntentStage:
             logger.error("Intent stage error: %s", exc, exc_info=True)
             bundle.intent = "inquiry"
             bundle.intent_conf = 0.1
+
 class _SentimentStage:
     @staticmethod
     def run(bundle: SignalBundle) -> None:
@@ -672,6 +1369,7 @@ class _SentimentStage:
             logger.error("Sentiment stage error: %s", exc, exc_info=True)
             bundle.sentiment = "neutral"
             bundle.sentiment_conf = 0.5
+
 class _RecommendationStage:
     @staticmethod
     def run(bundle: SignalBundle, user_id: Optional[int]) -> None:
@@ -685,7 +1383,7 @@ class _RecommendationStage:
             recs, method = model.recommend(user_id=user_id, query=query, intent=bundle.intent, sentiment=bundle.sentiment)
             if recs:
                 try:
-                    shopify_products = get_shopify_products()
+                    shopify_products = _safe_shopify_products()
                     if shopify_products:
                         enriched = []
                         for rec in recs:
@@ -709,6 +1407,7 @@ class _RecommendationStage:
             bundle.recommendation_method = method
         except Exception as exc:
             logger.error("Recommendation stage error: %s", exc, exc_info=True)
+
 class _ModelRouterStage:
     def should_recommend(self, bundle: SignalBundle) -> bool:
         if bundle.intent in _NO_RECOMMEND_INTENTS:
@@ -718,6 +1417,7 @@ class _ModelRouterStage:
         if bundle.intent_conf < _INTENT_CONFIDENCE_THRESHOLD and bundle.entities.get("product_name"):
             return True
         return True
+
     def is_vague(self, bundle: SignalBundle) -> bool:
         if bundle.intent != "recommendation_request":
             return False
@@ -725,6 +1425,7 @@ class _ModelRouterStage:
             return False
         tl = bundle.message.lower().strip()
         return any(word in tl for word in _VAGUE_SIGNALS)
+
 def _missing_order_fields(bundle: SignalBundle) -> List[str]:
     missing = []
     if not bundle.user_name:
@@ -736,6 +1437,7 @@ def _missing_order_fields(bundle: SignalBundle) -> List[str]:
     if not bundle.quantity:
         missing.append("quantity")
     return missing
+
 def _save_order_data_to_conversation(bundle: SignalBundle, conv) -> None:
     if not conv:
         return
@@ -763,120 +1465,318 @@ def _save_order_data_to_conversation(bundle: SignalBundle, conv) -> None:
             conv.save(update_fields=update_fields)
     except Exception as exc:
         logger.error("Failed to save order data: %s", exc, exc_info=True)
-def _create_shopify_order_and_confirm(bundle: SignalBundle, conv) -> bool:
-    variant_id = bundle.last_product_variant_id
-    if not variant_id and bundle.last_product_snapshot:
-        variant_id = bundle.last_product_snapshot.get("variant_id")
-    if not variant_id:
-        product_name = ""
-        if bundle.last_product_snapshot:
-            product_name = (
-                bundle.last_product_snapshot.get("name")
-                or bundle.last_product_snapshot.get("title", "")
-            )
-        if product_name:
+
+def _get_authenticated_order_user(
+    bundle: SignalBundle,
+    conv,
+):
+    conversation_user = getattr(conv, "user", None)
+    if (
+        conversation_user is not None
+        and getattr(
+            conversation_user,
+            "is_authenticated",
+            False,
+        )
+    ):
+        return conversation_user
+    if bundle.authenticated_user_id:
+        try:
+            User = get_user_model()
+            return User.objects.filter(
+                pk=bundle.authenticated_user_id
+            ).first()
+        except Exception as exc:
             logger.warning(
-                "_create_shopify_order: variant_id missing for '%s', attempting Shopify lookup...",
-                product_name,
+                "Could not load authenticated user %s: %s",
+                bundle.authenticated_user_id,
+                exc,
             )
-            try:
-                shopify_products = get_shopify_products()
-                matched = _enrich_with_shopify_variant(
-                    {"name": product_name},
-                    shopify_products,
-                )
-                variant_id = matched.get("variant_id")
-                if variant_id:
-                    bundle.last_product_variant_id = variant_id
-                    if bundle.last_product_snapshot:
-                        bundle.last_product_snapshot["variant_id"] = variant_id
-                    logger.info(
-                        "_create_shopify_order: found variant_id via name lookup: %s", variant_id
-                    )
-            except Exception as lookup_exc:
-                logger.error("Shopify variant lookup failed: %s", lookup_exc)
-    if not variant_id:
-        if bundle.language == "ar":
-            bundle.response = "عذراً، لا يوجد معرف للمنتج المختار. يرجى اختيار منتج مرة أخرى."
-        else:
-            bundle.response = "Sorry, no product variant ID found. Please select a product again."
-        bundle.response_conf = 0.95
-        return True
-    if not bundle.user_name or not bundle.phone or not bundle.address or not bundle.quantity:
-        logger.warning("_create_shopify_order: missing fields — name=%s phone=%s address=%s qty=%s",
-                       bundle.user_name, bundle.phone, bundle.address, bundle.quantity)
+    return None
+
+def _create_shopify_order_and_confirm(
+    bundle: SignalBundle,
+    conv,
+) -> bool:
+    missing_fields = _missing_order_fields(bundle)
+    if missing_fields:
+        logger.warning(
+            "Cannot create order; missing fields: %s",
+            ", ".join(missing_fields),
+        )
         return False
+    if not bundle.last_product_snapshot:
+        bundle.last_product_snapshot = {}
+    snapshot = bundle.last_product_snapshot
+    local_order = None
+    existing_local_order_id = snapshot.get("local_order_id")
+    if existing_local_order_id:
+        try:
+            Order = apps.get_model("orders", "Order")
+            local_order = Order.objects.filter(
+                pk=existing_local_order_id,
+            ).first()
+        except Exception as exc:
+            logger.warning(
+                "Could not reload local order %s: %s",
+                existing_local_order_id,
+                exc,
+            )
+    order_user = _get_authenticated_order_user(
+        bundle,
+        conv,
+    )
+    order_email = (
+        bundle.email
+        or getattr(order_user, "email", "")
+        or "customer@example.com"
+    )
     try:
-        result = create_shopify_draft_order(
-            variant_id=variant_id,
-            quantity=bundle.quantity,
-            customer_name=bundle.user_name,
-            phone=bundle.phone,
-            address=bundle.address,
-            email=bundle.email,
-        )
-        if result.get("status") != "created":
-            raise Exception(f"Order creation failed: {result}")
-        if not bundle.last_product_snapshot:
-            bundle.last_product_snapshot = {}
-        bundle.last_product_snapshot["shopify_draft_order_id"] = result["draft_order_id"]
-        bundle.last_product_snapshot["shopify_draft_order_name"] = result["draft_order_name"]
-        bundle.last_product_snapshot["shopify_invoice_url"] = result["invoice_url"]
-        bundle.shopify_draft_order_id = result["draft_order_id"]
-        bundle.shopify_draft_order_name = result["draft_order_name"]
-        bundle.shopify_invoice_url = result["invoice_url"]
-        if conv and hasattr(conv, "last_product_data"):
-            try:
-                current_data = {}
-                if conv.last_product_data:
-                    current_data = (
-                        json.loads(conv.last_product_data)
-                        if isinstance(conv.last_product_data, str)
-                        else (conv.last_product_data or {})
-                    )
-                current_data.update({
-                    "shopify_draft_order_id": result["draft_order_id"],
-                    "shopify_draft_order_name": result["draft_order_name"],
-                    "shopify_invoice_url": result["invoice_url"],
-                })
-                conv.last_product_data = json.dumps(current_data, ensure_ascii=False)
-                conv.purchase_state = PurchaseState.IDLE.value
-                conv.save(update_fields=["last_product_data", "purchase_state"])
-            except Exception as exc:
-                logger.warning("Could not persist draft order to conv: %s", exc)
-        bundle.purchase_state = PurchaseState.IDLE
-        bundle.intent = "order_confirmed"
-        product_name = (
-            bundle.last_product_snapshot.get("name")
-            or bundle.last_product_snapshot.get("title", "")
-        )
-        if bundle.language == "ar":
-            bundle.response = (
-                f"تم تجهيز طلبك بنجاح 🎉\n"
-                f"📦 المنتج: {product_name}\n"
-                f"🔢 رقم الطلب: {result['draft_order_name']}\n"
-                f"💰 رابط الدفع: {result['invoice_url']}\n\n"
-                f"بعد الدفع تقدري تسأليني: فين طلبي؟"
+        if local_order is None:
+            product_id = (
+                snapshot.get("product_id")
+                or bundle.last_product_id
+                or snapshot.get("local_product_id")
             )
-        else:
-            bundle.response = (
-                f"Your order is ready 🎉\n"
-                f"📦 Product: {product_name}\n"
-                f"🔢 Order: {result['draft_order_name']}\n"
-                f"💰 Payment link: {result['invoice_url']}\n\n"
-                f"After payment, you can ask: where is my order?"
+            local_order = create_order_from_chat(
+                product_id=product_id,
+                phone=bundle.phone,
+                address=bundle.address,
+                quantity=bundle.quantity,
+                email=order_email,
+                user=order_user,
+                product_snapshot=snapshot,
             )
-        bundle.response_conf = 0.98
-        logger.info("Shopify draft order created: %s", result["draft_order_name"])
-        return True
     except Exception as exc:
-        logger.error("Shopify order creation failed: %s", exc)
+        logger.error(
+            "Local order creation failed: %s",
+            exc,
+            exc_info=True,
+        )
         if bundle.language == "ar":
-            bundle.response = "عذراً، حدث خطأ في إنشاء الطلب. يرجى المحاولة مرة أخرى."
+            bundle.response = (
+                "عذراً، تعذر إنشاء الطلب في النظام. "
+                "راجعي بيانات الهاتف والعنوان ثم حاولي مرة أخرى."
+            )
         else:
-            bundle.response = "Sorry, an error occurred while creating the order. Please try again."
+            bundle.response = (
+                "Sorry, the order could not be created. "
+                "Please check the phone number and address, then try again."
+            )
         bundle.response_conf = 0.95
         return True
+    tracking_token = generate_order_tracking_token(
+        local_order,
+    )
+    bundle.order_id = local_order.pk
+    bundle.local_order_number = local_order.order_number
+    bundle.tracking_token = tracking_token
+    bundle.entities["created_order_number"] = (
+        local_order.order_number
+    )
+    bundle.entities["order_number"] = local_order.order_number
+    snapshot.update(
+        {
+            "local_order_id": local_order.pk,
+            "local_order_number": local_order.order_number,
+            "tracking_token": tracking_token,
+        }
+    )
+    shopify_result = None
+    existing_draft_id = (
+        bundle.shopify_draft_order_id
+        or snapshot.get("shopify_draft_order_id")
+    )
+    existing_draft_name = (
+        bundle.shopify_draft_order_name
+        or snapshot.get("shopify_draft_order_name")
+    )
+    existing_invoice_url = (
+        bundle.shopify_invoice_url
+        or snapshot.get("shopify_invoice_url")
+    )
+    if (
+        existing_draft_id
+        and existing_draft_name
+        and existing_invoice_url
+    ):
+        shopify_result = {
+            "status": "created",
+            "draft_order_id": existing_draft_id,
+            "draft_order_name": existing_draft_name,
+            "invoice_url": existing_invoice_url,
+        }
+        bundle.shopify_sync_status = "reused"
+    elif not _SHOPIFY_ENABLED:
+        bundle.shopify_sync_status = "disabled"
+    else:
+        variant_id = (
+            bundle.last_product_variant_id
+            or snapshot.get("variant_id")
+        )
+        if not variant_id:
+            product_name = (
+                snapshot.get("name")
+                or snapshot.get("title")
+                or ""
+            )
+            if product_name:
+                try:
+                    matched = _enrich_with_shopify_variant(
+                        {"name": product_name},
+                        _safe_shopify_products(),
+                    )
+                    variant_id = matched.get("variant_id")
+                    if variant_id:
+                        bundle.last_product_variant_id = variant_id
+                        snapshot["variant_id"] = variant_id
+                except Exception as exc:
+                    logger.warning(
+                        "Optional Shopify variant lookup failed: %s",
+                        exc,
+                    )
+        if variant_id:
+            try:
+                candidate_result = create_shopify_draft_order(
+                    variant_id=variant_id,
+                    quantity=bundle.quantity,
+                    customer_name=bundle.user_name,
+                    phone=bundle.phone,
+                    address=bundle.address,
+                    email=order_email,
+                )
+                if candidate_result.get("status") == "created":
+                    shopify_result = candidate_result
+                    bundle.shopify_sync_status = "created"
+                else:
+                    bundle.shopify_sync_status = "failed"
+                    bundle.shopify_sync_error = (
+                        "Shopify did not create a draft order."
+                    )
+                    logger.warning(
+                        "Optional Shopify draft was not created: %r",
+                        candidate_result,
+                    )
+            except Exception as exc:
+                bundle.shopify_sync_status = "failed"
+                bundle.shopify_sync_error = str(exc)[:300]
+                logger.warning(
+                    "Optional Shopify draft creation failed; "
+                    "local order %s remains valid: %s",
+                    local_order.order_number,
+                    exc,
+                )
+        else:
+            bundle.shopify_sync_status = "skipped"
+    if shopify_result:
+        bundle.shopify_draft_order_id = shopify_result[
+            "draft_order_id"
+        ]
+        bundle.shopify_draft_order_name = shopify_result[
+            "draft_order_name"
+        ]
+        bundle.shopify_invoice_url = shopify_result[
+            "invoice_url"
+        ]
+        snapshot.update(
+            {
+                "shopify_draft_order_id": (
+                    bundle.shopify_draft_order_id
+                ),
+                "shopify_draft_order_name": (
+                    bundle.shopify_draft_order_name
+                ),
+                "shopify_invoice_url": (
+                    bundle.shopify_invoice_url
+                ),
+            }
+        )
+    snapshot["shopify_sync_status"] = (
+        bundle.shopify_sync_status
+    )
+    if conv and hasattr(conv, "last_product_data"):
+        try:
+            current_data = {}
+            if conv.last_product_data:
+                current_data = (
+                    json.loads(conv.last_product_data)
+                    if isinstance(conv.last_product_data, str)
+                    else (conv.last_product_data or {})
+                )
+            current_data.update(snapshot)
+            conv.last_product_data = json.dumps(
+                current_data,
+                ensure_ascii=False,
+            )
+            conv.purchase_state = PurchaseState.IDLE.value
+            update_fields = [
+                "last_product_data",
+                "purchase_state",
+            ]
+            if hasattr(conv, "order_id"):
+                conv.order_id = local_order.pk
+                update_fields.append("order_id")
+            conv.save(
+                update_fields=list(set(update_fields)),
+            )
+        except Exception as exc:
+            logger.warning(
+                "Could not persist order data to conversation: %s",
+                exc,
+            )
+    bundle.purchase_state = PurchaseState.IDLE
+    bundle.intent = "order_created"
+    bundle.intent_conf = 1.0
+    bundle.response_conf = 0.98
+    first_item = local_order.items.first()
+    product_name = (
+        snapshot.get("name")
+        or snapshot.get("title")
+        or (first_item.product_name if first_item else "Product")
+    )
+    if bundle.language == "ar":
+        bundle.response = (
+            f"تم إنشاء طلبك بنجاح 🎉\n"
+            f"📦 المنتج: {product_name}\n"
+            f"🔢 رقم الطلب: {local_order.order_number}\n"
+        )
+        if shopify_result:
+            bundle.response += (
+                f"💳 رابط الدفع: "
+                f"{bundle.shopify_invoice_url}\n"
+            )
+        else:
+            bundle.response += (
+                "💵 طريقة الدفع: الدفع عند الاستلام\n"
+            )
+        bundle.response += (
+            "احتفظي برقم الطلب لمتابعة حالته."
+        )
+    else:
+        bundle.response = (
+            f"Your order was created successfully 🎉\n"
+            f"📦 Product: {product_name}\n"
+            f"🔢 Order number: {local_order.order_number}\n"
+        )
+        if shopify_result:
+            bundle.response += (
+                f"💳 Payment link: "
+                f"{bundle.shopify_invoice_url}\n"
+            )
+        else:
+            bundle.response += (
+                "💵 Payment method: Cash on delivery\n"
+            )
+        bundle.response += (
+            "Keep the order number to track its status."
+        )
+    logger.info(
+        "Local order %s created; Shopify sync status=%s",
+        local_order.order_number,
+        bundle.shopify_sync_status,
+    )
+    return True
+
 class _ResponseDirector:
     _MEDICAL_AR = "أنا مش بديل للطبيب، ولو الأعراض شديدة أو مستمرة يُفضل استشارة طبيب. أقدر أساعدك بمنتجات متابعة صحية زي جهاز قياس الضغط أو جهاز قياس السكر لو حابة."
     _MEDICAL_EN = "I'm not a substitute for a doctor. If symptoms are severe or persistent, please consult a healthcare professional. I can help with health-monitoring products like blood pressure or glucose monitors."
@@ -886,6 +1786,7 @@ class _ResponseDirector:
     _FINANCIAL_EN = "I'm not qualified to give financial advice. Please consult a financial advisor."
     _HARMFUL_AR = "مش قادر أساعد في ده 😊 تحب أساعدك في منتجات المتجر؟"
     _HARMFUL_EN = "I can't help with that 😊 Can I assist you with our store products?"
+
     @staticmethod
     def run(bundle: SignalBundle, conv) -> None:
         bundle.trace("response_director")
@@ -968,6 +1869,7 @@ class _ResponseDirector:
         else:
             bundle.response = ("أنا هنا للمساعدة 😊 أقدر أساعدك في إيه؟" if ar else "I'm here to help! How can I assist you?")
             bundle.response_conf = 0.0
+
 class _ConversationManager:
     @staticmethod
     def load(bundle: SignalBundle, conversation_id: Optional[int]):
@@ -994,6 +1896,8 @@ class _ConversationManager:
                         bundle.shopify_draft_order_id = snapshot.get("shopify_draft_order_id")
                         bundle.shopify_draft_order_name = snapshot.get("shopify_draft_order_name")
                         bundle.shopify_invoice_url = snapshot.get("shopify_invoice_url")
+                        bundle.local_order_number = snapshot.get("local_order_number")
+                        bundle.tracking_token = snapshot.get("tracking_token")
                         if not bundle.last_product_variant_id:
                             bundle.last_product_variant_id = snapshot.get("variant_id")
                 except (ValueError, TypeError):
@@ -1007,6 +1911,7 @@ class _ConversationManager:
         except Exception as exc:
             logger.warning("Could not load conversation %s: %s", conversation_id, exc)
         return conv
+
     @staticmethod
     def save(bundle: SignalBundle, conv, new_user_name: Optional[str]) -> None:
         if not conv:
@@ -1038,18 +1943,36 @@ class _ConversationManager:
             if bundle.purchase_state.value != getattr(conv, "purchase_state", None):
                 conv.purchase_state = bundle.purchase_state.value
                 update_fields.append("purchase_state")
-            if bundle.recommendations:
-                new_pid = bundle.recommendations[0].get("product_id")
-                if new_pid and new_pid != conv.last_product_id:
-                    conv.last_product_id = new_pid
-                    bundle.last_product_id = new_pid
+            selected_product_methods = {
+                "catalog_selected",
+                "shopify_selected",
+                "last_product_snapshot",
+                "conversation_context",
+            }
+            should_persist_selected_product = (
+                bundle.recommendation_method in selected_product_methods
+                or bundle.purchase_state != PurchaseState.IDLE
+                or bundle.order_id is not None
+            )
+            if should_persist_selected_product and bundle.last_product_id:
+                if bundle.last_product_id != conv.last_product_id:
+                    conv.last_product_id = bundle.last_product_id
                     update_fields.append("last_product_id")
-            if bundle.last_product_snapshot is not None:
+            if (
+                should_persist_selected_product
+                and bundle.last_product_snapshot is not None
+            ):
                 snapshot_data = bundle.last_product_snapshot.copy()
                 if bundle.shopify_draft_order_id:
                     snapshot_data["shopify_draft_order_id"] = bundle.shopify_draft_order_id
                     snapshot_data["shopify_draft_order_name"] = bundle.shopify_draft_order_name
                     snapshot_data["shopify_invoice_url"] = bundle.shopify_invoice_url
+                if bundle.order_id:
+                    snapshot_data["local_order_id"] = bundle.order_id
+                if bundle.local_order_number:
+                    snapshot_data["local_order_number"] = bundle.local_order_number
+                if bundle.tracking_token:
+                    snapshot_data["tracking_token"] = bundle.tracking_token
                 if bundle.last_product_variant_id:
                     snapshot_data["variant_id"] = bundle.last_product_variant_id
                 new_snap_json = json.dumps(snapshot_data, ensure_ascii=False)
@@ -1068,17 +1991,21 @@ class _ConversationManager:
             conv.save(update_fields=list(set(update_fields)))
         except Exception as exc:
             logger.warning("Could not save conversation: %s", exc)
+
 class ModelOrchestrator:
     _instance = None
+
     def __new__(cls, *args, **kwargs):
         if cls._instance is None:
             cls._instance = super().__new__(cls)
             cls._instance._initialized = False
         return cls._instance
+
     def __init__(self):
         if self._initialized:
             return
         self._initialized = True
+
     def process_message(
         self,
         message: str,
@@ -1089,7 +2016,10 @@ class ModelOrchestrator:
         text = message or kwargs.get("text", "")
         if not text.strip():
             return {"success": False, "error": "Empty message"}
-        bundle = SignalBundle(message=text)
+        bundle = SignalBundle(
+            message=text,
+            authenticated_user_id=user_id,
+        )
         _LanguageDetector.run(bundle)
         is_blocked = _SafetyLayer.run(bundle)
         conv = _ConversationManager.load(bundle, conversation_id)
@@ -1100,6 +2030,25 @@ class ModelOrchestrator:
             return self._build_result(bundle)
         _IntentStage.run(bundle)
         _SentimentStage.run(bundle)
+        complaint_handled = _ComplaintStage.run(bundle, conv)
+        if complaint_handled:
+            _ConversationManager.save(
+                bundle,
+                conv,
+                bundle.entities.get("user_name"),
+            )
+            return self._build_result(bundle)
+        ticket_tracking_handled = _TicketTrackingStage.run(
+            bundle,
+            conv,
+        )
+        if ticket_tracking_handled:
+            _ConversationManager.save(
+                bundle,
+                conv,
+                bundle.entities.get("user_name"),
+            )
+            return self._build_result(bundle)
         tracking_handled = _OrderTrackingStage.run(bundle)
         if tracking_handled:
             _ConversationManager.save(bundle, conv, bundle.entities.get("user_name"))
@@ -1107,15 +2056,30 @@ class ModelOrchestrator:
         if bundle.purchase_state == PurchaseState.IDLE:
             browse_handled = _BrowseProductsStage.run(bundle)
             if browse_handled:
-                _ConversationManager.save(bundle, conv, bundle.entities.get("user_name"))
+                _ConversationManager.save(
+                    bundle,
+                    conv,
+                    bundle.entities.get("user_name"),
+                )
+                return self._build_result(bundle)
+            product_selection_handled = _ProductSelectionStage.run(
+                bundle,
+                conv,
+            )
+            if product_selection_handled:
+                _ConversationManager.save(
+                    bundle,
+                    conv,
+                    bundle.entities.get("user_name"),
+                )
                 return self._build_result(bundle)
             product_search_handled = _ProductSearchStage.run(bundle)
             if product_search_handled:
-                _ConversationManager.save(bundle, conv, bundle.entities.get("user_name"))
-                return self._build_result(bundle)
-            product_selection_handled = _ProductSelectionStage.run(bundle, conv)
-            if product_selection_handled:
-                _ConversationManager.save(bundle, conv, bundle.entities.get("user_name"))
+                _ConversationManager.save(
+                    bundle,
+                    conv,
+                    bundle.entities.get("user_name"),
+                )
                 return self._build_result(bundle)
         checkout_ai_result = _CheckoutAIStage.run(bundle)
         if checkout_ai_result:
@@ -1182,6 +2146,7 @@ class ModelOrchestrator:
         _ResponseDirector.run(bundle, conv)
         _ConversationManager.save(bundle, conv, bundle.entities.get("user_name"))
         return self._build_result(bundle)
+
     def _build_result(self, bundle: SignalBundle) -> Dict[str, Any]:
         shopify_draft_order_id = bundle.shopify_draft_order_id
         shopify_draft_order_name = bundle.shopify_draft_order_name
@@ -1190,11 +2155,38 @@ class ModelOrchestrator:
             shopify_draft_order_id = shopify_draft_order_id or bundle.last_product_snapshot.get("shopify_draft_order_id")
             shopify_draft_order_name = shopify_draft_order_name or bundle.last_product_snapshot.get("shopify_draft_order_name")
             shopify_invoice_url = shopify_invoice_url or bundle.last_product_snapshot.get("shopify_invoice_url")
+        local_order_number = (
+            bundle.local_order_number
+            or bundle.entities.get("created_order_number")
+            or bundle.entities.get("order_number")
+        )
+        tracking_token = bundle.tracking_token
+        if bundle.last_product_snapshot:
+            local_order_number = (
+                local_order_number
+                or bundle.last_product_snapshot.get(
+                    "local_order_number"
+                )
+            )
+            tracking_token = (
+                tracking_token
+                or bundle.last_product_snapshot.get(
+                    "tracking_token"
+                )
+            )
         return {
             "success": True,
             "response": bundle.response,
             "intent": bundle.intent,
+            "sentiment": bundle.sentiment,
+            "confidence": {
+                "intent": round(bundle.intent_conf, 3),
+                "sentiment": round(bundle.sentiment_conf, 3),
+            },
             "recommendations": bundle.recommendations,
+            "order_id": bundle.order_id,
+            "order_number": local_order_number,
+            "tracking_token": tracking_token,
             "metadata": {
                 "recommendation_method": bundle.recommendation_method,
                 "user_name": bundle.user_name,
@@ -1209,26 +2201,42 @@ class ModelOrchestrator:
                 "shopify_draft_order_id": shopify_draft_order_id,
                 "shopify_draft_order_name": shopify_draft_order_name,
                 "shopify_invoice_url": shopify_invoice_url,
+                "shopify_sync_status": bundle.shopify_sync_status,
                 "checkout_intent": bundle.checkout_intent,
                 "next_action": bundle.next_action,
                 "checkout_ai_parse_failed": bundle.checkout_ai_parse_failed,
+                "checkout_mode": bundle.checkout_mode,
+                "checkout_fallback_used": bundle.checkout_fallback_used,
+                "complaint_state": bundle.complaint_state,
+                "ticket_id": bundle.ticket_id,
+                "ticket_number": bundle.ticket_number,
+                "ticket_status": bundle.ticket_status,
+                "human_handoff": bundle.human_handoff,
+                "order_id": bundle.order_id,
+                "order_number": local_order_number,
+                "tracking_token": tracking_token,
             },
         }
+
     def _analyze_intent_safe(self, message: str, last_intent: str = None) -> Dict[str, Any]:
         bundle = SignalBundle(message=message, last_intent=last_intent)
         _IntentStage.run(bundle)
         return {"intent": bundle.intent, "confidence": bundle.intent_conf}
+
     def _analyze_sentiment_safe(self, message: str) -> Dict[str, Any]:
         bundle = SignalBundle(message=message)
         _SentimentStage.run(bundle)
         return {"sentiment": bundle.sentiment, "confidence": bundle.sentiment_conf}
+
     def _classify_intent_safe(self, message: str) -> Dict[str, Any]:
         return self._analyze_intent_safe(message)
+
     def _get_recommendations_stable(self, user_id: Optional[int], intent: str, query: str) -> Tuple[List[Dict], str]:
         bundle = SignalBundle(message=query, intent=intent)
         bundle.entities["product_name"] = query
         _RecommendationStage.run(bundle, user_id)
         return bundle.recommendations, bundle.recommendation_method
+
     def get_model_status(self) -> Dict[str, Any]:
         return {
             "status": "operational",
@@ -1237,11 +2245,14 @@ class ModelOrchestrator:
             "recommendation_model": _ModelRegistry.get("recommendation") is not None,
             "generation_model": _ModelRegistry.get("generation") is not None,
         }
+
     def detect_language(self, text: str) -> str:
         return "ar" if _RE_ARABIC.search(text) else "en"
+
     def extract_entities(self, text: str, lang: str) -> Dict[str, Any]:
         bundle = SignalBundle(message=text)
         _LanguageDetector.run(bundle)
         return bundle.entities
+
     def __del__(self):
         gc.collect()
