@@ -40,6 +40,28 @@ _MIN_ALPHA_RATIO = 0.4
 _INTENT_CONFIDENCE_THRESHOLD = 0.40
 _PURCHASE_MIN_CONFIDENCE = 0.70
 _API_BASE_URL = "http://localhost:8000"
+
+def _fetch_products(bundle: 'SignalBundle') -> List[Dict]:
+    if bundle.source == "shopify":
+        return get_shopify_products()
+    else:
+        try:
+            from assistify.apps.products.models import Product
+            products = Product.objects.filter(is_active=True)
+            return [
+                {
+                    "id": str(p.id),
+                    "variant_id": str(p.id),
+                    "name": p.name,
+                    "price": str(p.price),
+                    "description": p.description or "",
+                }
+                for p in products
+            ]
+        except Exception as e:
+            logger.error(f"Error fetching local products: {e}")
+            return []
+
 def _enrich_with_shopify_variant(rec: Dict, shopify_products: List[Dict]) -> Dict:
     if rec.get("variant_id"):
         return rec 
@@ -175,6 +197,7 @@ def is_browse_products_query(message: str, intent: str) -> bool:
 class SignalBundle:
     message: str = ""
     language: str = "en"
+    source: str = "web"
     intent: str = "inquiry"
     intent_conf: float = 0.0
     intent_all_probs: Dict[str, float] = field(default_factory=dict)
@@ -374,6 +397,11 @@ class _OrderTrackingStage:
 class _CheckoutAIStage:
     @staticmethod
     def _build_checkout_prompt(bundle: SignalBundle, product_name: str) -> str:
+        email_line_ar = f"- البريد الإلكتروني: {bundle.email if bundle.email else 'غير متوفر'}\n" if bundle.source == "web" else ""
+        email_prompt_ar = ',"email": "البريد الإلكتروني إذا ذكره في هذه الرسالة، وإلا null"' if bundle.source == "web" else ''
+        email_line_en = f"- Email: {bundle.email if bundle.email else 'not available'}\n" if bundle.source == "web" else ""
+        email_prompt_en = ',"email": "email if mentioned in this message, else null"' if bundle.source == "web" else ''
+        
         if bundle.language == "ar":
             collection_status = (
                 f"البيانات الحالية:\n"
@@ -381,6 +409,7 @@ class _CheckoutAIStage:
                 f"- الهاتف: {bundle.phone if bundle.phone else 'غير متوفر'}\n"
                 f"- العنوان: {bundle.address if bundle.address else 'غير متوفر'}\n"
                 f"- الكمية: {bundle.quantity if bundle.quantity else 'غير متوفر'}\n"
+                f"{email_line_ar}"
             )
             return (
                 f"أنت مساعد ذكي لمتجر Shopify لبيع المنتجات الطبية.\n"
@@ -388,9 +417,11 @@ class _CheckoutAIStage:
                 f"{collection_status}\n"
                 f"رسالة المستخدم: {bundle.message}\n"
                 f"أخرج JSON فقط (بدون أي كلام آخر) بالشكل التالي:\n"
-                f'{ \n"checkout_intent": "start_checkout | provide_name | provide_phone | provide_address | provide_quantity | confirm_order | cancel_order | track_order | unknown",\n'
-                f'"entities": { \n"name": "اسم المستخدم إذا ذكره في هذه الرسالة، وإلا null",\n"phone": "رقم الهاتف إذا ذكره في هذه الرسالة، وإلا null",\n"address": "العنوان إذا ذكره في هذه الرسالة، وإلا null",\n"quantity": "الكمية إذا ذكرها في هذه الرسالة (رقم فقط)، وإلا null"\n} ,\n'
-                f'"next_action": "ask_name | ask_phone | ask_address | ask_quantity | create_shopify_draft_order | track_order | cancel | clarify"\n} \n'
+                '{\n"checkout_intent": "start_checkout | provide_name | provide_phone | provide_address | provide_quantity | confirm_order | cancel_order | track_order | unknown",\n'
+                '"entities": {\n"name": "اسم المستخدم إذا ذكره في هذه الرسالة، وإلا null",\n"phone": "رقم الهاتف إذا ذكره في هذه الرسالة، وإلا null",\n"address": "العنوان إذا ذكره في هذه الرسالة، وإلا null",\n"quantity": "الكمية إذا ذكرها في هذه الرسالة (رقم فقط)، وإلا null"'
+                f'{email_prompt_ar}'
+                '\n},\n'
+                '"next_action": "ask_name | ask_phone | ask_address | ask_quantity | ask_email | create_shopify_draft_order | track_order | cancel | clarify"\n}\n'
                 f"قواعد مهمة:\n"
                 f"- لا تخرج أي شيء بجانب الـ JSON.\n"
                 f"- لا تخترع بيانات غير موجودة في الرسالة.\n"
@@ -404,6 +435,7 @@ class _CheckoutAIStage:
                 f"- Phone: {bundle.phone if bundle.phone else 'not available'}\n"
                 f"- Address: {bundle.address if bundle.address else 'not available'}\n"
                 f"- Quantity: {bundle.quantity if bundle.quantity else 'not available'}\n"
+                f"{email_line_en}"
             )
             return (
                 f"You are a smart assistant for a Shopify medical products store.\n"
@@ -411,9 +443,11 @@ class _CheckoutAIStage:
                 f"{collection_status}\n"
                 f"User message: {bundle.message}\n"
                 f"Output ONLY JSON (no extra text) in the following format:\n"
-                f'{ \n"checkout_intent": "start_checkout | provide_name | provide_phone | provide_address | provide_quantity | confirm_order | cancel_order | track_order | unknown",\n'
-                f'"entities": { \n"name": "user name if mentioned in this message, else null",\n"phone": "phone number if mentioned in this message, else null",\n"address": "address if mentioned in this message, else null",\n"quantity": "quantity if mentioned in this message (number only), else null"\n} ,\n'
-                f'"next_action": "ask_name | ask_phone | ask_address | ask_quantity | create_shopify_draft_order | track_order | cancel | clarify"\n} \n'
+                '{\n"checkout_intent": "start_checkout | provide_name | provide_phone | provide_address | provide_quantity | confirm_order | cancel_order | track_order | unknown",\n'
+                '"entities": {\n"name": "user name if mentioned in this message, else null",\n"phone": "phone number if mentioned in this message, else null",\n"address": "address if mentioned in this message, else null",\n"quantity": "quantity if mentioned in this message (number only), else null"'
+                f'{email_prompt_en}'
+                '\n},\n'
+                '"next_action": "ask_name | ask_phone | ask_address | ask_quantity | ask_email | create_shopify_draft_order | track_order | cancel | clarify"\n}\n'
                 f"Important rules:\n"
                 f"- Output ONLY JSON, no other text.\n"
                 f"- Do not invent data not present in the message.\n"
@@ -459,6 +493,9 @@ class _CheckoutAIStage:
                     bundle.quantity = qty
             except (ValueError, TypeError):
                 pass
+        extracted_email = entities.get("email")
+        if extracted_email and str(extracted_email).lower() not in ("null", "none", "") and not bundle.email:
+            bundle.email = str(extracted_email).strip()
     @staticmethod
     def run(bundle: SignalBundle) -> bool:
         bundle.trace("checkout_ai_stage")
@@ -533,6 +570,8 @@ class _CheckoutAIStage:
                 return "confirm_order", "ask_phone"
             if not bundle.address:
                 return "confirm_order", "ask_address"
+            if bundle.source == "web" and not bundle.email:
+                return "confirm_order", "ask_email"
             if not bundle.quantity:
                 return "confirm_order", "ask_quantity"
             return "confirm_order", "create_shopify_draft_order"
@@ -563,7 +602,7 @@ class _ProductSelectionStage:
             return False
         if bundle.purchase_state != PurchaseState.IDLE:
             return False
-        shopify_products = get_shopify_products()
+        shopify_products = _fetch_products(bundle)
         if not shopify_products:
             if bundle.language == "ar":
                 bundle.response = "عذراً، لا توجد منتجات متاحة حالياً."
@@ -614,7 +653,7 @@ class _BrowseProductsStage:
     def run(bundle: SignalBundle) -> bool:
         bundle.trace("browse_products_stage")
         if is_browse_products_query(bundle.message, bundle.intent):
-            shopify_products = get_shopify_products()
+            shopify_products = _fetch_products(bundle)
             bundle.all_products = shopify_products
             bundle.recommendations = shopify_products
             bundle.response = format_shopify_products_response(shopify_products, bundle.language)
@@ -629,7 +668,7 @@ class _ProductSearchStage:
     def run(bundle: SignalBundle) -> bool:
         bundle.trace("product_search_stage")
         if bundle.intent == "product_search":
-            shopify_products = get_shopify_products()
+            shopify_products = _fetch_products(bundle)
             bundle.recommendations = shopify_products
             bundle.response = format_shopify_products_response(shopify_products, bundle.language)
             bundle.response_conf = 0.98
@@ -655,6 +694,9 @@ class _IntentStage:
             logger.error("Intent stage error: %s", exc, exc_info=True)
             bundle.intent = "inquiry"
             bundle.intent_conf = 0.1
+        if is_purchase_trigger(bundle.message, bundle.intent):
+            bundle.intent = "purchase_intent"
+            bundle.intent_conf = 1.0
 class _SentimentStage:
     @staticmethod
     def run(bundle: SignalBundle) -> None:
@@ -685,23 +727,17 @@ class _RecommendationStage:
             recs, method = model.recommend(user_id=user_id, query=query, intent=bundle.intent, sentiment=bundle.sentiment)
             if recs:
                 try:
-                    shopify_products = get_shopify_products()
-                    if shopify_products:
+                    if bundle.source == "shopify":
+                        shopify_products = _fetch_products(bundle)
                         enriched = []
-                        for rec in recs:
-                            enriched_rec = _enrich_with_shopify_variant(rec, shopify_products)
-                            enriched.append(enriched_rec)
-                            if enriched_rec.get("variant_id"):
-                                logger.debug(
-                                    "Enriched recommendation '%s' with variant_id: %s",
-                                    enriched_rec.get("name", ""),
-                                    enriched_rec.get("variant_id"),
-                                )
-                            else:
-                                logger.warning(
-                                    "Could not find Shopify match for recommendation: '%s'",
-                                    rec.get("name", ""),
-                                )
+                        if shopify_products:
+                            for rec in recs:
+                                enriched_rec = _enrich_with_shopify_variant(rec, shopify_products)
+                                if enriched_rec.get("variant_id"):
+                                    enriched.append(enriched_rec)
+                                    logger.debug("Enriched recommendation '%s' with variant_id: %s", enriched_rec.get("name", ""), enriched_rec.get("variant_id"))
+                                else:
+                                    logger.warning("Could not find Shopify match for recommendation: '%s'", rec.get("name", ""))
                         recs = enriched
                 except Exception as enrich_exc:
                     logger.warning("Failed to enrich recommendations with Shopify data: %s", enrich_exc)
@@ -735,6 +771,8 @@ def _missing_order_fields(bundle: SignalBundle) -> List[str]:
         missing.append("address")
     if not bundle.quantity:
         missing.append("quantity")
+    if bundle.source == "web" and not bundle.email:
+        missing.append("email")
     return missing
 def _save_order_data_to_conversation(bundle: SignalBundle, conv) -> None:
     if not conv:
@@ -763,7 +801,69 @@ def _save_order_data_to_conversation(bundle: SignalBundle, conv) -> None:
             conv.save(update_fields=update_fields)
     except Exception as exc:
         logger.error("Failed to save order data: %s", exc, exc_info=True)
-def _create_shopify_order_and_confirm(bundle: SignalBundle, conv) -> bool:
+def _create_order_and_confirm(bundle: SignalBundle, conv) -> bool:
+    if bundle.source == "web":
+        if not bundle.user_name or not bundle.phone or not bundle.address or not bundle.quantity or not bundle.email:
+            logger.warning("_create_order: missing fields for web order — name=%s phone=%s address=%s qty=%s email=%s",
+                           bundle.user_name, bundle.phone, bundle.address, bundle.quantity, bundle.email)
+            return False
+        try:
+            from assistify.apps.orders.models import Order, OrderItem
+            from assistify.apps.products.models import Product
+            
+            subtotal = 0
+            product_instance = None
+            if bundle.last_product_id:
+                try:
+                    product_instance = Product.objects.get(id=int(bundle.last_product_id))
+                    subtotal = product_instance.price * bundle.quantity
+                except (ValueError, Product.DoesNotExist, TypeError):
+                    pass
+            
+            shipping_fee = 50
+            total = subtotal + shipping_fee
+            
+            order = Order.objects.create(
+                customer_email=bundle.email,
+                phone=bundle.phone,
+                delivery_address=bundle.address,
+                subtotal=subtotal,
+                shipping_fee=shipping_fee,
+                total=total,
+            )
+            
+            product_name = bundle.last_product_snapshot.get("name", "المنتج") if bundle.last_product_snapshot else "المنتج"
+            
+            OrderItem.objects.create(
+                order=order,
+                product=product_instance,
+                product_name=product_name,
+                unit_price=product_instance.price if product_instance else 0,
+                quantity=bundle.quantity
+            )
+            
+            bundle.purchase_state = PurchaseState.IDLE
+            bundle.intent = "order_confirmed"
+            if bundle.language == "ar":
+                bundle.response = f"تم إنشاء الطلب بنجاح! 🎉\nرقم الطلب: {order.order_number}\nالتكلفة: {total} جنيه (بما فيها الشحن).\nهنتواصل معاك قريباً على {bundle.phone} للتأكيد."
+            else:
+                bundle.response = f"Order created successfully! 🎉\nOrder Number: {order.order_number}\nTotal: {total} EGP (including shipping).\nWe will contact you soon at {bundle.phone} to confirm."
+            bundle.response_conf = 1.0
+            
+            if conv:
+                conv.purchase_state = PurchaseState.IDLE.value
+                conv.save(update_fields=["purchase_state"])
+                
+            return True
+        except Exception as exc:
+            logger.error("Failed to create local order: %s", exc, exc_info=True)
+            if bundle.language == "ar":
+                bundle.response = "حدث خطأ أثناء إنشاء الطلب، يرجى المحاولة لاحقاً."
+            else:
+                bundle.response = "An error occurred while creating your order. Please try again later."
+            bundle.response_conf = 0.95
+            return True
+
     variant_id = bundle.last_product_variant_id
     if not variant_id and bundle.last_product_snapshot:
         variant_id = bundle.last_product_snapshot.get("variant_id")
@@ -780,7 +880,7 @@ def _create_shopify_order_and_confirm(bundle: SignalBundle, conv) -> bool:
                 product_name,
             )
             try:
-                shopify_products = get_shopify_products()
+                shopify_products = _fetch_products(bundle)
                 matched = _enrich_with_shopify_variant(
                     {"name": product_name},
                     shopify_products,
@@ -1084,12 +1184,13 @@ class ModelOrchestrator:
         message: str,
         conversation_id: Optional[int] = None,
         user_id: Optional[int] = None,
+        source: str = "web",
         **kwargs,
     ) -> Dict[str, Any]:
         text = message or kwargs.get("text", "")
         if not text.strip():
             return {"success": False, "error": "Empty message"}
-        bundle = SignalBundle(message=text)
+        bundle = SignalBundle(message=text, source=source)
         _LanguageDetector.run(bundle)
         is_blocked = _SafetyLayer.run(bundle)
         conv = _ConversationManager.load(bundle, conversation_id)
@@ -1130,7 +1231,7 @@ class ModelOrchestrator:
             _ConversationManager.save(bundle, conv, bundle.entities.get("user_name"))
             return self._build_result(bundle)
         if bundle.purchase_state == PurchaseState.READY_TO_ORDER:
-            order_created = _create_shopify_order_and_confirm(bundle, conv)
+            order_created = _create_order_and_confirm(bundle, conv)
             if order_created:
                 _ConversationManager.save(bundle, conv, bundle.entities.get("user_name"))
                 return self._build_result(bundle)

@@ -4,13 +4,14 @@ import logging
 logger = logging.getLogger(__name__)
 def get_orchestrator():
     return ModelOrchestrator()
-def get_chat_response(message: str, user_id=None, conversation_id=None) -> dict:
+def get_chat_response(message: str, user_id=None, conversation_id=None, source="web") -> dict:
     try:
         orchestrator = get_orchestrator()
         result = orchestrator.process_message(
             message=message, 
             user_id=user_id, 
-            conversation_id=conversation_id
+            conversation_id=conversation_id,
+            source=source
         )
         if result.get('success'):
             return result
@@ -30,10 +31,10 @@ def _get_fallback_result(message: str) -> dict:
         "confidence": {"intent": 0.1, "sentiment": 0.1},
         "metadata": {"recommendation_method": "none", "user_name": None}
     }
-def get_model_insights(message: str, user_id=None) -> dict:
+def get_model_insights(message: str, user_id=None, source="web") -> dict:
     try:
         orchestrator = get_orchestrator()
-        result = orchestrator.process_message(user_id=user_id, message=message)
+        result = orchestrator.process_message(user_id=user_id, message=message, source=source)
         return {
             'intent': result.get('intent'),
             'sentiment': result.get('sentiment'),

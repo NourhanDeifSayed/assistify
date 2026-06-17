@@ -21,7 +21,7 @@ class ChatView(APIView):
         conversation = self._get_or_create_conversation(request, conversation_id)
         Message.objects.create(conversation=conversation, role=Message.Role.USER, content=message_text)
         user_id = request.user.id if request.user.is_authenticated else None
-        result = get_chat_response(message_text, user_id=user_id, conversation_id=conversation.id)
+        result = get_chat_response(message_text, user_id=user_id, conversation_id=conversation.id, source="web")
         Message.objects.create(
             conversation=conversation, 
             role=Message.Role.ASSISTANT, 
@@ -84,7 +84,7 @@ class WhatsAppWebhookView(APIView):
     def process_and_reply(self, message_text, sender, conversation_id):
         try:
             conversation = Conversation.objects.get(id=conversation_id)
-            result = get_chat_response(message_text, user_id=None, conversation_id=conversation.id)
+            result = get_chat_response(message_text, user_id=None, conversation_id=conversation.id, source="shopify")
             reply_text = result.get('response', 'عذراً، أواجه مشكلة في معالجة طلبك الآن.')
             Message.objects.create(
                 conversation=conversation, 
@@ -98,11 +98,15 @@ class WhatsAppWebhookView(APIView):
                 twilio_number = f"whatsapp:{twilio_number}"
             if account_sid and auth_token:
                 client = Client(account_sid, auth_token)
-                client.messages.create(
-                    body=reply_text,
-                    from_=twilio_number,
-                    to=sender
-                )
+                # client.messages.create(
+                #     body=reply_text,
+                #     from_=twilio_number,
+                #     to=sender
+                # )
+                print("\n" + "="*50)
+                print(f"🤖 [WHATSAPP SIMULATION] Reply to {sender}:")
+                print(reply_text)
+                print("="*50 + "\n")
             else:
                 logger.error("Twilio credentials missing from .env. Could not send async reply.")
         except Exception as e:

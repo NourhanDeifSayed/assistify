@@ -3,7 +3,7 @@ import logging
 import ollama
 logger = logging.getLogger(__name__)
 class ResponseGenerationModel:
-    MODEL_NAME = "qwen2.5:7b"
+    MODEL_NAME = "qwen2.5:3b"
     MAX_RESPONSE_CHARS = 600
     _SIGNATURE_PATTERNS = [
         r"(?i)(best regards|regards|sincerely|yours truly)[^\n]*",
@@ -265,7 +265,7 @@ class ResponseGenerationModel:
         intent = intent or "inquiry"
         sentiment = sentiment or "neutral"
         msg = (message or "").strip().lower()
-        if self._is_unknown_input(msg):
+        if self._is_unknown_input(msg) or intent == "unknown":
             return self.UNKNOWN_INPUT_RESPONSE_AR if ar else self.UNKNOWN_INPUT_RESPONSE_EN
         if intent == "out_of_scope" or self._is_out_of_scope_message(msg, intent):
             return self.OUT_OF_SCOPE_RESPONSE_AR if ar else self.OUT_OF_SCOPE_RESPONSE_EN
@@ -416,6 +416,10 @@ class ResponseGenerationModel:
                 return True
         if re.fullmatch(r"(.)\1{3,}", compact):
             return True
+        if re.search(r"^[^a-zA-Z\u0600-\u06FF\d]{3,}$|^(.)\1{4,}$|^[a-z]{5,}$", compact, re.IGNORECASE):
+            vowels = sum(1 for char in compact.lower() if char in "aeiouy")
+            if vowels == 0:
+                return True
         return False
     def _is_no_product_found(self, intent: str, recommendations: list) -> bool:
         product_intents = {
@@ -423,6 +427,9 @@ class ResponseGenerationModel:
             "product_inquiry",
             "product_details",
             "price_inquiry",
+            "inquiry",
+            "browse_products",
+            "recommendation_request",
         }
         return intent in product_intents and not recommendations
     def _is_cancel_order_message(self, message: str, intent: str) -> bool:

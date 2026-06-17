@@ -15,8 +15,8 @@ class OrderItemInputSerializer(serializers.Serializer):
 class PlaceOrderSerializer(serializers.Serializer):
     customer_email = serializers.EmailField()
     payment_method = serializers.ChoiceField(choices=Order.PaymentMethod.choices)
-    delivery_address = serializers.CharField(required=False, allow_blank=True, default="")
-    phone = serializers.CharField(required=False, allow_blank=True, default="")
+    delivery_address = serializers.CharField(required=True, allow_blank=False)
+    phone = serializers.CharField(required=True, allow_blank=False)
     items = OrderItemInputSerializer(many=True, min_length=1)
     def validate_items(self, items):
         from assistify.apps.products.models import Product
@@ -40,6 +40,18 @@ class PlaceOrderSerializer(serializers.Serializer):
         )
         shipping = Decimal("50.00")
         total = subtotal + shipping
+        user = validated_data.get("user")
+        if user:
+            update_fields = []
+            if not user.address and validated_data.get("delivery_address"):
+                user.address = validated_data["delivery_address"]
+                update_fields.append("address")
+            if not user.phone and validated_data.get("phone"):
+                user.phone = validated_data["phone"]
+                update_fields.append("phone")
+            if update_fields:
+                user.save(update_fields=update_fields)
+
         order = Order.objects.create(
             subtotal=subtotal,
             shipping_fee=shipping,
@@ -57,12 +69,45 @@ class PlaceOrderSerializer(serializers.Serializer):
                 unit_price=product.price,
                 quantity=item["quantity"],
             )
-        TrackingUpdate.objects.create(
-            order=order,
-            date=timezone.now().date(),
-            status="Order Placed",
-            location="Warehouse",
-        )
+        from assistify.apps.orders.shippo_service import create_test_shipment
+        try:
+            shippo_data = create_test_shipment(order)
+            if shippo_data:
+                order.tracking_number = shippo_data["tracking_number"]
+                order.tracking_url = shippo_data["tracking_url"]
+                order.save(update_fields=["tracking_number", "tracking_url"])
+                
+                TrackingUpdate.objects.create(
+                    order=order,
+                    date=timezone.now().date(),
+                    status=f"Label Created ({shippo_data['tracking_number']})",
+                    location="Shippo Facility"
+                )
+            else:
+                TrackingUpdate.objects.create(
+                    order=order,
+                    date=timezone.now().date(),
+                    status="Order Placed",
+                    location="Warehouse",
+                )
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).error(f"Shippo Integration Error: {e}")
+            TrackingUpdate.objects.create(
+                order=order,
+                date=timezone.now().date(),
+                status="Order Placed",
+                location="Warehouse",
+            )
+        
+        if user:
+            from assistify.apps.users.services import generate_recommendations_for_user
+            try:
+                generate_recommendations_for_user(user)
+            except Exception as e:
+                import logging
+                logging.getLogger(__name__).error(f"Failed to generate recommendations post-order: {e}")
+                
         return order
 class OrderSerializer(serializers.ModelSerializer):
     items = OrderItemSerializer(many=True, read_only=True)
@@ -81,6 +126,7 @@ class OrderSerializer(serializers.ModelSerializer):
             "delivery_address",
             "phone",
             "tracking_number",
+            "tracking_url",
             "estimated_delivery",
             "items",
             "tracking_updates",

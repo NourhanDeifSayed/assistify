@@ -47,6 +47,13 @@ export async function getMe() {
   return request("/auth/me/");
 }
 
+export async function updateMe(data) {
+  return request("/auth/me/", {
+    method: "PATCH",
+    body: JSON.stringify(data),
+  });
+}
+
 
 export async function fetchProducts(search = "") {
   const q = search ? `?search=${encodeURIComponent(search)}` : "";
@@ -98,4 +105,20 @@ export async function sendChatMessage(message, conversationId = null) {
     body: JSON.stringify({ message, conversation_id: conversationId }),
   });
   return { reply: data.reply, conversationId: data.conversation_id };
+}
+
+export async function fetchNotifications() {
+  return request("/auth/notifications/");
+}
+
+export async function markNotificationAsRead(id) {
+  return request(`/auth/notifications/${id}/mark-read/`, {
+    method: "POST",
+  });
+}
+
+export async function markAllNotificationsAsRead() {
+  return request("/auth/notifications/mark-read/", {
+    method: "POST",
+  });
 }
