@@ -2,9 +2,7 @@ from django.contrib.auth import get_user_model
 from rest_framework import serializers
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 
-
 User = get_user_model()
-
 
 class RegisterSerializer(serializers.ModelSerializer):
     password = serializers.CharField(
@@ -36,23 +34,19 @@ class RegisterSerializer(serializers.ModelSerializer):
 
     def validate_email(self, value):
         email = value.strip().lower()
-
         if User.objects.filter(email__iexact=email).exists():
             raise serializers.ValidationError(
                 "A user with this email already exists."
             )
-
         return email
 
     def validate(self, attrs):
         password = attrs.get("password")
         password2 = attrs.pop("password2", None)
-
         if password != password2:
             raise serializers.ValidationError(
                 {"password2": "Passwords do not match."}
             )
-
         return attrs
 
     def create(self, validated_data):
@@ -61,28 +55,28 @@ class RegisterSerializer(serializers.ModelSerializer):
             role=User.Role.CUSTOMER,
         )
 
-
 class UserProfileSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
-
         fields = (
             "id",
             "username",
             "email",
             "role",
+            "is_staff",
+            "is_superuser",
             "phone",
             "address",
             "date_joined",
         )
-
         read_only_fields = (
             "id",
             "email",
             "role",
+            "is_staff",
+            "is_superuser",
             "date_joined",
         )
-
 
 class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
     def validate(self, attrs):

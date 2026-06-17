@@ -115,3 +115,31 @@ export async function submitConversationFeedback({ conversationId, rating, comme
     }),
   });
 }
+
+export async function fetchAdminOrders() {
+  return request("/orders/list/");
+}
+
+export async function updateOrderStatus({
+  orderNumber,
+  status,
+  location,
+  trackingNumber = "",
+}) {
+  const payload = {
+    status,
+    location,
+  };
+
+  if (trackingNumber) {
+    payload.tracking_number = trackingNumber;
+  }
+
+  return request(
+    `/orders/${encodeURIComponent(orderNumber)}/status/`,
+    {
+      method: "PATCH",
+      body: JSON.stringify(payload),
+    }
+  );
+}

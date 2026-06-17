@@ -14,6 +14,7 @@ import Review from "./pages/Review";
 import Offers from "./pages/Offers";
 import ChatPage from "./pages/ChatPage";
 import Analytics from "./pages/Analytics";
+import AdminOrders from "./pages/AdminOrders";
 
 export default function App() {
   return (
@@ -32,6 +33,7 @@ export default function App() {
           <Route path="/offers" element={<Offers />} />
           <Route path="/chat" element={<ChatPage />} />
           <Route path="/analytics" element={<Analytics />} />
+          <Route path="/admin/orders" element={<AdminOrders />} />
         </Routes>
         <ChatWidget />
       </BrowserRouter>
