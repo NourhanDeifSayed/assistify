@@ -6,7 +6,7 @@ logger = logging.getLogger(__name__)
 
 
 class ResponseGenerationModel:
-    MODEL_NAME = "qwen2.5:7b"
+    MODEL_NAME = "qwen2.5:1.5b"
     MAX_RESPONSE_CHARS = 600
 
     _SIGNATURE_PATTERNS = [

@@ -90,6 +90,53 @@ _VAGUE_SIGNALS = frozenset([
     "رشحلي", "اقترح", "عايز", "عايزة", "بدور", "suggest", "recommend", "need", "find"
 ])
 
+# Product-list questions must take priority over greetings in the same message.
+_BROWSE_PRODUCTS_KEYWORDS_AR = (
+    "المنتجات المتاحة",
+    "منتجات متاحة",
+    "ما هي المنتجات",
+    "ايه المنتجات",
+    "إيه المنتجات",
+    "عندكم ايه منتجات",
+    "عندكم إيه منتجات",
+    "عندكو ايه منتجات",
+    "عندكو إيه منتجات",
+    "وريني المنتجات",
+    "اعرض المنتجات",
+    "قائمة المنتجات",
+)
+
+_BROWSE_PRODUCTS_KEYWORDS_EN = (
+    "available products",
+    "what products",
+    "show me the products",
+    "show products",
+    "product list",
+    "what do you sell",
+)
+
+
+def _is_browse_products_query(text: str) -> bool:
+    tl = (text or "").lower().strip()
+
+    if any(phrase in tl for phrase in _BROWSE_PRODUCTS_KEYWORDS_AR):
+        return True
+
+    if any(phrase in tl for phrase in _BROWSE_PRODUCTS_KEYWORDS_EN):
+        return True
+
+    product_words = ("منتجات", "المنتجات", "أصناف", "اصناف", "products", "items")
+    browse_words = (
+        "متاحة", "متوفر", "متوفرة", "موجود", "موجودة",
+        "عندكم", "عندكو", "ايه", "إيه", "ما هي", "وريني", "اعرض",
+        "available", "show", "list", "what",
+    )
+
+    return (
+        any(word in tl for word in product_words)
+        and any(word in tl for word in browse_words)
+    )
+
 _RE_GIBBERISH = re.compile(
     r"^[^a-zA-Z\u0600-\u06FF\d]{3,}$"
     r"|^(.)\1{4,}$"
@@ -483,6 +530,48 @@ class _ResponseDirector:
             bundle.recommendations = []
             return
 
+        if bundle.entities.get("_browse_products"):
+            recommendations = list(bundle.recommendations or [])
+
+            if recommendations:
+                lines = []
+                for index, product in enumerate(recommendations[:5], start=1):
+                    name = product.get("name") or "منتج"
+                    price = product.get("price")
+                    currency = product.get("currency") or "EGP"
+                    emoji = product.get("emoji") or "📦"
+
+                    if price not in (None, ""):
+                        try:
+                            price_text = f"{float(price):g} {currency}"
+                        except (TypeError, ValueError):
+                            price_text = f"{price} {currency}"
+                        lines.append(f"{index}. {emoji} {name} — {price_text}")
+                    else:
+                        lines.append(f"{index}. {emoji} {name}")
+
+                if bundle.language == "ar":
+                    bundle.response = (
+                        "أهلاً بيكي 😊 المنتجات المتاحة عندنا حالياً:\n"
+                        + "\n".join(lines)
+                        + "\n\nقولي اسم المنتج اللي حابة تعرفي تفاصيله أو تطلبيه."
+                    )
+                else:
+                    bundle.response = (
+                        "Here are the products currently available:\n"
+                        + "\n".join(lines)
+                        + "\n\nTell me which product you'd like details about or want to order."
+                    )
+            else:
+                bundle.response = (
+                    "أهلاً بيكي 😊 حالياً مفيش منتجات ظاهرة في قاعدة البيانات."
+                    if bundle.language == "ar"
+                    else "There are no products visible in the database right now."
+                )
+
+            bundle.response_conf = 1.0
+            return
+
         created_order_number = bundle.entities.get("created_order_number")
         if created_order_number:
             product_name = ""
@@ -742,6 +831,14 @@ class ModelOrchestrator:
         # ── 3. Intent classification ───────────────────────────────────────────
         _IntentStage.run(bundle)
 
+        # A product-list question wins over a greeting such as:
+        # "مرحبا، ما هي المنتجات المتاحة؟"
+        if _is_browse_products_query(bundle.message):
+            bundle.intent = "recommendation_request"
+            bundle.intent_conf = 1.0
+            bundle.entities["_browse_products"] = True
+            bundle.trace("browse_products_rule")
+
         # ── 4. Sentiment ───────────────────────────────────────────────────────
         _SentimentStage.run(bundle)
 
@@ -811,6 +908,33 @@ class ModelOrchestrator:
         # ── 9. Recommendation routing ──────────────────────────────────────────
         router = _ModelRouterStage()
 
+        # Stable product list for screenshots/videos.
+        # This avoids greeting misclassification and avoids returning only one item.
+        if bundle.entities.get("_browse_products"):
+            try:
+                Product = apps.get_model("products", "Product")
+                products = Product.objects.all()[:5]
+                bundle.recommendations = [
+                    {
+                        "product_id": product.id,
+                        "name": getattr(product, "name", "Product"),
+                        "price": float(getattr(product, "price", 0) or 0),
+                        "currency": getattr(product, "currency", "EGP"),
+                        "description": getattr(product, "description", ""),
+                        "features": getattr(product, "features", []),
+                        "suitable_for": getattr(product, "suitable_for", []),
+                        "use_cases": getattr(product, "use_cases", []),
+                        "score": 1.0,
+                        "emoji": getattr(product, "emoji", "📦"),
+                        "reasoning": "منتج متاح حالياً في المتجر.",
+                    }
+                    for product in products
+                ]
+                bundle.recommendation_method = "database_browse"
+                bundle.trace("database_product_browse")
+            except Exception as exc:
+                logger.warning("Could not load products for browse response: %s", exc)
+
         # 9a. LOCK: inject last snapshot for follow-up intents (no LLM product drift)
         lock_product = (
             bundle.last_product_snapshot
@@ -831,7 +955,11 @@ class ModelOrchestrator:
             bundle.trace("product_context_lock")
 
         # 9b. RUN recommendation model for genuine new queries
-        elif router.should_recommend(bundle) and not router.is_vague(bundle):
+        elif (
+            not bundle.entities.get("_browse_products")
+            and router.should_recommend(bundle)
+            and not router.is_vague(bundle)
+        ):
             _RecommendationStage.run(bundle, user_id)
         elif router.is_vague(bundle):
             bundle.entities["_vague"] = True

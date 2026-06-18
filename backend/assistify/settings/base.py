@@ -121,3 +121,25 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 CORS_ALLOWED_ORIGINS = config(
     "CORS_ALLOWED_ORIGINS", default="http://localhost:3000,http://127.0.0.1:3000"
 ).split(",")
+
+
+# Instagram Messaging API
+INSTAGRAM_ACCESS_TOKEN = config("INSTAGRAM_ACCESS_TOKEN", default="")
+META_APP_SECRET = config("META_APP_SECRET", default="")
+INSTAGRAM_VERIFY_TOKEN = config("INSTAGRAM_VERIFY_TOKEN", default="")
+
+INSTAGRAM_API_VERSION = config(
+    "INSTAGRAM_API_VERSION",
+    default="v25.0",
+)
+
+INSTAGRAM_GRAPH_HOST = config(
+    "INSTAGRAM_GRAPH_HOST",
+    default="https://graph.instagram.com",
+)
+
+INSTAGRAM_VERIFY_SIGNATURE = config(
+    "INSTAGRAM_VERIFY_SIGNATURE",
+    default=True,
+    cast=bool,
+)

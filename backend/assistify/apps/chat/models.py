@@ -64,3 +64,58 @@ class Message(models.Model):
 
     def __str__(self):
         return f"[{self.role}] {self.content[:60]}"
+    
+
+class InstagramWebhookEvent(models.Model):
+
+    class Status(models.TextChoices):
+        RECEIVED = "received", "Received"
+        PROCESSED = "processed", "Processed"
+        IGNORED = "ignored", "Ignored"
+        FAILED = "failed", "Failed"
+
+    message_id = models.CharField(
+        max_length=255,
+        unique=True,
+        null=True,
+        blank=True,
+    )
+
+    sender_id = models.CharField(
+        max_length=255,
+    )
+
+    recipient_id = models.CharField(
+        max_length=255,
+        blank=True,
+    )
+
+    payload = models.JSONField(
+        default=dict,
+    )
+
+    status = models.CharField(
+        max_length=20,
+        choices=Status.choices,
+        default=Status.RECEIVED,
+    )
+
+    error = models.TextField(
+        blank=True,
+    )
+
+    created_at = models.DateTimeField(
+        auto_now_add=True,
+    )
+
+    updated_at = models.DateTimeField(
+        auto_now=True,
+    )
+
+    class Meta:
+        db_table = "instagram_webhook_events"
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        identifier = self.message_id or self.id
+        return f"Instagram event {identifier} ({self.status})"
