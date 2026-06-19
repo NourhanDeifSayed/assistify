@@ -1,17 +1,16 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { useCart } from "../context/CartContext";
-import { getMe, logout } from "../services/api";
+import { useAuth } from "../context/AuthContext";
 import AuthModal from "./AuthModal";
 import styles from "./Navbar.module.css";
 
 export default function Navbar() {
   const { cart } = useCart();
   const location = useLocation();
+  const { user, loading: loadingUser, logout: handleLogout } = useAuth();
 
   const [showAuth, setShowAuth] = useState(false);
-  const [user, setUser] = useState(null);
-  const [loadingUser, setLoadingUser] = useState(true);
 
   const navLinks = [
     { to: "/", label: "Home" },
@@ -20,58 +19,17 @@ export default function Navbar() {
     { to: "/chat", label: "Support" },
   ];
 
-  useEffect(() => {
-    let isMounted = true;
-
-    async function loadCurrentUser() {
-      const token = localStorage.getItem("access_token");
-
-      if (!token) {
-        if (isMounted) {
-          setUser(null);
-          setLoadingUser(false);
-        }
-        return;
-      }
-
-      try {
-        const data = await getMe();
-        if (isMounted) {
-          setUser(data.user || data);
-        }
-      } catch (error) {
-        logout();
-        if (isMounted) {
-          setUser(null);
-        }
-      } finally {
-        if (isMounted) {
-          setLoadingUser(false);
-        }
-      }
-    }
-
-    loadCurrentUser();
-
-    return () => {
-      isMounted = false;
-    };
-  }, []);
-
-  function handleAuthSuccess(authenticatedUser) {
-    setUser(authenticatedUser);
-    setShowAuth(false);
-  }
-
-  function handleLogout() {
-    logout();
-    setUser(null);
-  }
-
   const isAdmin =
     user?.is_staff ||
     user?.is_superuser ||
     user?.role === "admin";
+
+  const isExcludedRoute =
+    location.pathname.startsWith("/admin") ||
+    location.pathname === "/analytics";
+
+  if (isExcludedRoute) return null;
+
 
   return (
     <>
@@ -187,7 +145,7 @@ export default function Navbar() {
       {showAuth && (
         <AuthModal
           onClose={() => setShowAuth(false)}
-          onAuthSuccess={handleAuthSuccess}
+          onAuthSuccess={() => setShowAuth(false)}
         />
       )}
     </>

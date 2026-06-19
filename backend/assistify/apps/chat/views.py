@@ -391,3 +391,69 @@ class WhatsAppWebhookView(APIView):
                 exc,
                 exc_info=True,
             )
+
+
+from rest_framework import generics
+from .serializers import AdminConversationSerializer, AdminConversationDetailSerializer
+from assistify.apps.users.views import IsAdminUser
+
+class AdminConversationListView(generics.ListAPIView):
+    serializer_class = AdminConversationSerializer
+    permission_classes = [IsAdminUser]
+
+    def get_queryset(self):
+        queryset = Conversation.objects.select_related("user", "feedback").all().order_by("-updated_at")
+
+        search = self.request.query_params.get("search", "").strip()
+        if search:
+            from django.db import models
+            queryset = queryset.filter(
+                models.Q(user__username__icontains=search) |
+                models.Q(user__email__icontains=search) |
+                models.Q(user_name__icontains=search) |
+                models.Q(session_key__icontains=search) |
+                models.Q(phone__icontains=search) |
+                models.Q(email__icontains=search)
+            )
+
+        language = self.request.query_params.get("language")
+        if language:
+            queryset = queryset.filter(language=language)
+
+        user_id = self.request.query_params.get("user")
+        if user_id:
+            queryset = queryset.filter(user_id=user_id)
+
+        purchase_state = self.request.query_params.get("purchase_state")
+        if purchase_state:
+            queryset = queryset.filter(purchase_state=purchase_state)
+
+        complaint_state = self.request.query_params.get("complaint_state")
+        if complaint_state:
+            queryset = queryset.filter(complaint_state=complaint_state)
+
+        last_intent = self.request.query_params.get("last_intent")
+        if last_intent:
+            queryset = queryset.filter(last_intent=last_intent)
+
+        start_date = self.request.query_params.get("start_date")
+        if start_date:
+            queryset = queryset.filter(created_at__date__gte=start_date)
+
+        end_date = self.request.query_params.get("end_date")
+        if end_date:
+            queryset = queryset.filter(created_at__date__lte=end_date)
+
+        auth_status = self.request.query_params.get("auth_status")
+        if auth_status == "authenticated":
+            queryset = queryset.filter(user__isnull=False)
+        elif auth_status == "anonymous":
+            queryset = queryset.filter(user__isnull=True)
+
+        return queryset
+
+
+class AdminConversationDetailView(generics.RetrieveAPIView):
+    queryset = Conversation.objects.prefetch_related("messages").select_related("user", "complaint_ticket", "feedback")
+    serializer_class = AdminConversationDetailSerializer
+    permission_classes = [IsAdminUser]

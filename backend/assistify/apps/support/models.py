@@ -124,3 +124,21 @@ class SupportTicket(models.Model):
 
     def __str__(self):
         return f"{self.ticket_number} — {self.get_issue_type_display()}"
+
+
+class FAQEntry(models.Model):
+    question = models.CharField(max_length=255)
+    answer = models.TextField()
+    category = models.CharField(max_length=100)
+    keywords = models.CharField(max_length=255, blank=True, help_text="Comma-separated keywords")
+    display_order = models.PositiveIntegerField(default=0)
+    is_published = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "faq_entries"
+        ordering = ["display_order", "-created_at"]
+
+    def __str__(self):
+        return self.question

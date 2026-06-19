@@ -4,6 +4,8 @@ from .views import (
     SupportTicketDetailUpdateView,
     SupportTicketListCreateView,
     SupportTicketReplyView,
+    FAQListCreateView,
+    FAQDetailView,
 )
 
 app_name = "support"
@@ -23,5 +25,15 @@ urlpatterns = [
         "tickets/<str:ticket_number>/reply/",
         SupportTicketReplyView.as_view(),
         name="ticket-reply",
+    ),
+    path(
+        "faq/",
+        FAQListCreateView.as_view(),
+        name="faq-list-create",
+    ),
+    path(
+        "faq/<int:pk>/",
+        FAQDetailView.as_view(),
+        name="faq-detail",
     ),
 ]

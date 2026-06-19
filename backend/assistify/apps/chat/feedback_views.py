@@ -1,7 +1,6 @@
-from rest_framework import status
+from rest_framework import generics, status
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
-from rest_framework.views import APIView
 
 from assistify.apps.chat.models import ConversationFeedback
 from assistify.apps.chat.serializers import (
@@ -9,47 +8,44 @@ from assistify.apps.chat.serializers import (
 )
 
 
-class ConversationFeedbackView(APIView):
+class ConversationFeedbackView(generics.ListCreateAPIView):
     permission_classes = [IsAuthenticated]
+    serializer_class = ConversationFeedbackSerializer
 
-    def get(self, request):
-        if request.user.is_staff:
-            feedback = ConversationFeedback.objects.select_related(
+    def get_queryset(self):
+        user = self.request.user
+        if user.is_staff:
+            queryset = ConversationFeedback.objects.select_related(
                 "conversation",
-            ).all()
+                "conversation__user",
+            ).all().order_by("-created_at")
         else:
-            feedback = ConversationFeedback.objects.select_related(
+            queryset = ConversationFeedback.objects.select_related(
                 "conversation",
+                "conversation__user",
             ).filter(
-                conversation__user=request.user,
-            )
+                conversation__user=user,
+            ).order_by("-created_at")
 
-        serializer = ConversationFeedbackSerializer(
-            feedback,
-            many=True,
-            context={"request": request},
-        )
+        if user.is_staff:
+            # Search
+            search = self.request.query_params.get("search", "").strip()
+            if search:
+                from django.db import models
+                queryset = queryset.filter(
+                    models.Q(comment__icontains=search) |
+                    models.Q(conversation__user__email__icontains=search) |
+                    models.Q(conversation__user_name__icontains=search)
+                )
 
-        return Response(
-            serializer.data,
-            status=status.HTTP_200_OK,
-        )
+            # Filter by rating
+            rating = self.request.query_params.get("rating")
+            if rating:
+                queryset = queryset.filter(rating=rating)
 
-    def post(self, request):
-        serializer = ConversationFeedbackSerializer(
-            data=request.data,
-            context={"request": request},
-        )
+            # Filter by user
+            user_id = self.request.query_params.get("user")
+            if user_id:
+                queryset = queryset.filter(conversation__user_id=user_id)
 
-        serializer.is_valid(raise_exception=True)
-        feedback = serializer.save()
-
-        response_serializer = ConversationFeedbackSerializer(
-            feedback,
-            context={"request": request},
-        )
-
-        return Response(
-            response_serializer.data,
-            status=status.HTTP_201_CREATED,
-        )
+        return queryset

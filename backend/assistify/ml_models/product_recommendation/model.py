@@ -5,7 +5,10 @@ import gc
 from typing import List, Dict, Any, Optional
 import numpy as np
 from django.apps import apps
+from assistify.apps.products.models import Product
+
 logger = logging.getLogger(__name__)
+
 class RecommendationModel:
     def __init__(self):
         self.model_path = os.path.join(os.path.dirname(__file__), 'semantic_embeddings.pkl')
@@ -14,6 +17,7 @@ class RecommendationModel:
         self.product_ids = []
         self.is_trained = False
         self._load_model()
+
     def _load_model(self):
         try:
             from sentence_transformers import SentenceTransformer
@@ -27,6 +31,16 @@ class RecommendationModel:
                 logger.info(f"Loaded embeddings for {len(self.product_ids)} products.")
         except Exception as e:
             logger.error(f"Failed to load recommendation model: {e}")
+
+    @staticmethod
+    def _result(recommendations, method):
+        recommendations = recommendations or []
+        return {
+            "recommendations": recommendations,
+            "count": len(recommendations),
+            "method": method,
+        }
+
     def predict(self, user_id: Optional[int] = None, query: str = "", intent: str = 'inquiry') -> Dict[str, Any]:
         recommendations = []
         method = 'fallback'
@@ -50,22 +64,23 @@ class RecommendationModel:
                 if ar_word in query_lower:
                     exact_matches = Product.objects.filter(
                         is_active=True,
+                        stock__gt=0,
                         name__icontains=en_keyword
                     )[:3]
                     if exact_matches.exists():
                         recommendations = self._format_products(exact_matches, 0.98, query)
-                        return {
-                            "recommendations": recommendations,
-                            "method": "arabic_keyword_match"
-                        }
+                        return self._result(recommendations, "arabic_keyword_match")
+
             if query and len(query) > 2:
                 exact_matches = Product.objects.filter(
                     is_active=True,
+                    stock__gt=0,
                     name__icontains=query
                 )[:3]
                 if exact_matches.exists():
                     recommendations = self._format_products(exact_matches, 0.95, query)
-                    return {'recommendations': recommendations, 'method': 'entity_match'}
+                    return self._result(recommendations, "entity_match")
+
             if self.is_trained and self.model and query:
                 from sklearn.metrics.pairwise import cosine_similarity
                 query_embedding = self.model.encode([query])
@@ -77,6 +92,8 @@ class RecommendationModel:
                     p_id = self.product_ids[idx]
                     try:
                         p = Product.objects.get(id=p_id)
+                        if not p.is_active or p.stock <= 0:
+                            continue
                         recommendations.append({
                             'product_id': p.id,
                             'name': p.name,
@@ -93,16 +110,20 @@ class RecommendationModel:
                     except Product.DoesNotExist:
                         continue
                 if recommendations:
-                    return {'recommendations': recommendations, 'method': 'semantic_search'}
-            fallback_products = Product.objects.filter(is_active=True)[:3]
+                    return self._result(recommendations, "semantic_search")
+
+            fallback_products = Product.objects.filter(is_active=True, stock__gt=0)[:3]
             recommendations = self._format_products(fallback_products, 0.5, query)
-            return {'recommendations': recommendations, 'method': 'database_fallback'}
+            return self._result(recommendations, "database_fallback")
+
         except Exception as e:
             logger.error(f"Error in recommendation: {e}")
-            return {'recommendations': [], 'method': 'error'}
+            return self._result([], "error")
+
     def recommend(self, user_id=None, query="", intent="", sentiment="neutral"):
         result = self.predict(user_id=user_id, query=query, intent=intent)
         return result.get("recommendations", []), result.get("method", "none")
+
     def _generate_reasoning(self, product, query: str) -> str:
         query_lower = query.lower()
         features = getattr(product, 'features', [])
@@ -112,6 +133,7 @@ class RecommendationModel:
         if suitable_for and any(s.lower() in query_lower for s in suitable_for):
             return f"الجهاز ده مناسب جداً لـ {', '.join(suitable_for[:2])} زي ما طلبت."
         return f"ده من أفضل الأجهزة المتاحة عندنا في فئة {product.name} وبيتميز بدقته العالية."
+
     def _format_products(self, products, score, query):
         return [{
             'product_id': p.id,
@@ -126,7 +148,11 @@ class RecommendationModel:
             'emoji': '📦',
             'reasoning': self._generate_reasoning(p, query)
         } for p in products]
+
     def __del__(self):
         if hasattr(self, 'model'):
             del self.model
         gc.collect()
+
+# Backward-compatible alias
+ProductRecommendationModel = RecommendationModel

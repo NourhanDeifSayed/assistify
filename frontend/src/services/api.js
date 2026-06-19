@@ -143,3 +143,127 @@ export async function updateOrderStatus({
     }
   );
 }
+
+// Admin Support Tickets
+export async function fetchAdminTickets(params = {}) {
+  const query = new URLSearchParams(params).toString();
+  return request(`/support/tickets/?${query}`);
+}
+
+export async function fetchTicketByNumber(ticketNumber) {
+  return request(`/support/tickets/${encodeURIComponent(ticketNumber)}/`);
+}
+
+export async function replyToTicket(ticketNumber, { response, status }) {
+  return request(`/support/tickets/${encodeURIComponent(ticketNumber)}/reply/`, {
+    method: "POST",
+    body: JSON.stringify({ response, status }),
+  });
+}
+
+// Admin Users
+export async function fetchAdminUsers(params = {}) {
+  const query = new URLSearchParams(params).toString();
+  return request(`/auth/admin/users/?${query}`);
+}
+
+export async function updateAdminUser(id, data) {
+  return request(`/auth/admin/users/${id}/`, {
+    method: "PATCH",
+    body: JSON.stringify(data),
+  });
+}
+
+// Admin Conversations
+export async function fetchAdminConversations(params = {}) {
+  const query = new URLSearchParams(params).toString();
+  return request(`/chat/admin/conversations/?${query}`);
+}
+
+export async function fetchConversationById(id) {
+  return request(`/chat/admin/conversations/${id}/`);
+}
+
+// Admin Reviews & Conversation Feedback
+export async function fetchAdminReviews(params = {}) {
+  const query = new URLSearchParams(params).toString();
+  return request(`/orders/reviews/admin/?${query}`);
+}
+
+export async function fetchAdminConversationFeedback(params = {}) {
+  const query = new URLSearchParams(params).toString();
+  return request(`/chat/feedback/?${query}`);
+}
+
+// Admin Offers
+export async function fetchAdminOffers(params = {}) {
+  const query = new URLSearchParams(params).toString();
+  return request(`/products/admin/offers/?${query}`);
+}
+
+export async function createOffer(data) {
+  return request("/products/admin/offers/", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+}
+
+export async function updateOffer(id, data) {
+  return request(`/products/admin/offers/${id}/`, {
+    method: "PATCH",
+    body: JSON.stringify(data),
+  });
+}
+
+export async function deleteOffer(id) {
+  return request(`/products/admin/offers/${id}/`, {
+    method: "DELETE",
+  });
+}
+
+// Admin FAQ / Knowledge Base
+export async function fetchAdminFAQs(params = {}) {
+  const query = new URLSearchParams(params).toString();
+  return request(`/support/faq/?${query}`);
+}
+
+export async function createFAQ(data) {
+  return request("/support/faq/", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+}
+
+export async function updateFAQ(id, data) {
+  return request(`/support/faq/${id}/`, {
+    method: "PATCH",
+    body: JSON.stringify(data),
+  });
+}
+
+export async function deleteFAQ(id) {
+  return request(`/support/faq/${id}/`, {
+    method: "DELETE",
+  });
+}
+
+// Admin Product Actions
+export async function adminCreateProduct(data) {
+  return request("/products/", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+}
+
+export async function adminUpdateProduct(id, data) {
+  return request(`/products/${id}/`, {
+    method: "PATCH",
+    body: JSON.stringify(data),
+  });
+}
+
+export async function adminDeactivateProduct(id) {
+  return request(`/products/${id}/`, {
+    method: "DELETE",
+  });
+}

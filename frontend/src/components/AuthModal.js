@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { login, register } from "../services/api";
+import { login as apiLogin, register } from "../services/api";
+import { useAuth } from "../context/AuthContext";
 import styles from "./AuthModal.module.css";
 
 export default function AuthModal({
@@ -8,8 +9,8 @@ export default function AuthModal({
   onAuthSuccess,
 }) {
   const navigate = useNavigate();
+  const { login } = useAuth();
   const [mode, setMode] = useState("login");
-  const [role, setRole] = useState("customer");
   const [email, setEmail] = useState("");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -22,13 +23,17 @@ export default function AuthModal({
     setLoading(true);
     try {
       if (mode === "login") {
-        const data = await login({
+        const data = await apiLogin({
           email,
           password,
         });
 
         const authenticatedUser = data.user;
-        onAuthSuccess(authenticatedUser);
+        login(authenticatedUser);
+
+        if (onAuthSuccess) {
+          onAuthSuccess(authenticatedUser);
+        }
 
         const isAdmin =
           authenticatedUser.is_staff ||
@@ -41,7 +46,7 @@ export default function AuthModal({
           navigate("/analytics");
         }
       } else {
-        await register({ username, email, password, password2, role });
+        await register({ username, email, password, password2 });
         alert("Account created! Please sign in.");
         setMode("login");
         return;
@@ -83,19 +88,10 @@ export default function AuthModal({
           </div>
 
           {mode === "register" && (
-            <>
-              <div className={styles.field}>
-                <label>Confirm Password</label>
-                <input type="password" placeholder="••••••••" value={password2} onChange={(e) => setPassword2(e.target.value)} />
-              </div>
-              <div className={styles.field}>
-                <label>Role</label>
-                <select value={role} onChange={(e) => setRole(e.target.value)}>
-                  <option value="customer">Customer</option>
-                  <option value="admin">Admin</option>
-                </select>
-              </div>
-            </>
+            <div className={styles.field}>
+              <label>Confirm Password</label>
+              <input type="password" placeholder="••••••••" value={password2} onChange={(e) => setPassword2(e.target.value)} />
+            </div>
           )}
         </div>
 
@@ -115,4 +111,4 @@ export default function AuthModal({
       </div>
     </div>
   );
-}
+}

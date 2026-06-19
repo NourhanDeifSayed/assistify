@@ -107,17 +107,32 @@ class IntentClassificationModel:
 
     def predict(self, text: str, last_intent: Optional[str] = None) -> Dict[str, Any]:
         text_lower = text.lower().strip()
+        
+        # Check for order tracking pattern (ord-XXXX-xxxxx)
         if re.search(
             r"\bord-\d{4}-[a-z0-9]{1,50}\b",
             text_lower,
         ):
             return self._sure("order_tracking")
+        
+        # Compact alphanumeric identifiers that are not valid order IDs
+        # are treated as unknown/general inquiries.
+        if re.fullmatch(r"(?=.*[a-z])(?=.*\d)[a-z0-9]+", text_lower):
+            return self._sure("inquiry")
+        
+        # Check for confirmation words
         if len(text_lower.split()) <= 6 and any(w in text_lower for w in ['أجل', 'تمام', 'أوكيه', 'اوكيه', 'موافق', 'صح', 'نعم', 'آه', 'أه', 'حلو', 'كويس', 'مظبوط', 'استمر', 'yes', 'okay', 'ok', 'got it', 'sure', 'confirmed', 'sounds good', 'alright']):
             return self._sure('confirmation')
+        
+        # Check for memory check
         if any(w in text_lower for w in ['اسمي إيه', 'اسمي ايه', 'مين أنا', 'انا مين', 'تعرف انا مين', 'تعرف اسمي', 'تعرفني', 'فاكرني', 'who am i', "what's my name", 'what is my name', 'do you know my name']):
             return self._sure('memory_check')
+        
+        # Check for recommendation reasoning
         if any(w in text_lower for w in ['ليه رشحت', 'ليه اخترت', 'اشمعنى', 'بناء على ايه', 'why did you recommend', 'why this', 'why recommended']):
             return self._sure('recommendation_reasoning')
+        
+        # Model inference
         if self.model and self.tokenizer:
             try:
                 probs = self._model_probs(text)
@@ -126,17 +141,23 @@ class IntentClassificationModel:
                 probs = self._uniform_probs()
         else:
             probs = self._uniform_probs()
+        
+        # Apply keyword boosts
         probs = self._apply_boosts(probs, text_lower)
+        
+        # Apply last intent boost if confidence is low
         if last_intent and last_intent in self.intent_map:
             top_conf = float(np.max(probs))
             if top_conf < 0.45:
                 idx = self.intent_map[last_intent]
                 probs[idx] = min(1.0, probs[idx] + 0.12)
                 probs = probs / probs.sum()
+        
         label_idx = int(np.argmax(probs))
         intent = self.id2intent.get(label_idx, 'inquiry')
         confidence = float(probs[label_idx])
         all_probs = {self.id2intent.get(i, str(i)): float(p) for i, p in enumerate(probs)}
+        
         return {'intent': intent, 'confidence': confidence, 'all_probs': all_probs}
 
     def _model_probs(self, text: str) -> np.ndarray:

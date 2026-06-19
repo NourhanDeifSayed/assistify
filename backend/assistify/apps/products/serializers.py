@@ -22,6 +22,9 @@ class ProductSerializer(serializers.ModelSerializer):
             "currency",
             "emoji",
             "is_active",
+            "category",
+            "stock",
+            "image",
             "benefits",
             "related_products",
             "offer",
@@ -47,7 +50,7 @@ class ProductWriteSerializer(serializers.ModelSerializer):
         model = Product
         fields = (
             "id", "name", "description", "price", "currency", "emoji",
-            "is_active", "benefits", "related_product_ids",
+            "is_active", "category", "stock", "image", "benefits", "related_product_ids",
         )
     def create(self, validated_data):
         benefits_data = validated_data.pop("benefits", [])
@@ -89,3 +92,39 @@ class OfferSerializer(serializers.ModelSerializer):
             "is_active",
             "valid_until",
         )
+
+    def validate(self, attrs):
+        discount_percent = attrs.get("discount_percent")
+        discounted_price = attrs.get("discounted_price")
+        product = attrs.get("product")
+        valid_until = attrs.get("valid_until")
+
+        if product:
+            original_price = product.price
+        elif self.instance:
+            original_price = self.instance.product.price
+        else:
+            original_price = None
+
+        if discount_percent is not None and (discount_percent < 0 or discount_percent > 100):
+            raise serializers.ValidationError(
+                {"discount_percent": "Discount percentage must be between 0 and 100."}
+            )
+
+        if discounted_price is not None and discounted_price < 0:
+            raise serializers.ValidationError(
+                {"discounted_price": "Discounted price must be greater than or equal to 0."}
+            )
+
+        if discounted_price is not None and original_price is not None and discounted_price >= original_price:
+            raise serializers.ValidationError(
+                {"discounted_price": "Discounted price must be less than the original product price."}
+            )
+
+        import datetime
+        if valid_until and valid_until < datetime.date.today():
+            raise serializers.ValidationError(
+                {"valid_until": "Expiration date cannot be in the past."}
+            )
+
+        return attrs

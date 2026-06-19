@@ -96,3 +96,74 @@ class ConversationFeedbackSerializer(serializers.ModelSerializer):
         attrs.pop("conversation_id", None)
 
         return attrs
+
+
+from assistify.apps.chat.models import Message
+from assistify.apps.users.serializers import UserProfileSerializer
+
+class AdminMessageSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Message
+        fields = ("id", "role", "content", "created_at")
+
+
+class AdminConversationSerializer(serializers.ModelSerializer):
+    user_email = serializers.EmailField(source="user.email", read_only=True)
+    feedback_rating = serializers.IntegerField(source="feedback.rating", read_only=True)
+
+    class Meta:
+        model = Conversation
+        fields = (
+            "id",
+            "user",
+            "user_email",
+            "session_key",
+            "user_name",
+            "last_intent",
+            "language",
+            "purchase_state",
+            "phone",
+            "email",
+            "order_id",
+            "complaint_state",
+            "complaint_ticket",
+            "feedback_rating",
+            "created_at",
+            "updated_at",
+        )
+
+
+class AdminConversationDetailSerializer(serializers.ModelSerializer):
+    user_detail = UserProfileSerializer(source="user", read_only=True)
+    messages = AdminMessageSerializer(many=True, read_only=True)
+    feedback = ConversationFeedbackSerializer(read_only=True)
+    ticket_number = serializers.CharField(source="complaint_ticket.ticket_number", read_only=True)
+
+    class Meta:
+        model = Conversation
+        fields = (
+            "id",
+            "user",
+            "user_detail",
+            "session_key",
+            "user_name",
+            "last_product_id",
+            "last_product_data",
+            "last_intent",
+            "language",
+            "purchase_state",
+            "address",
+            "phone",
+            "email",
+            "quantity",
+            "order_id",
+            "complaint_state",
+            "complaint_issue_type",
+            "complaint_order_id",
+            "complaint_ticket",
+            "ticket_number",
+            "feedback",
+            "messages",
+            "created_at",
+            "updated_at",
+        )

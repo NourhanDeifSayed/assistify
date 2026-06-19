@@ -1,10 +1,12 @@
 import os
 import json
 import logging
+import numpy as np
 import torch
 from transformers import AutoTokenizer, AutoModelForSequenceClassification, Trainer, TrainingArguments
 from torch.utils.data import Dataset
 from sklearn.model_selection import train_test_split
+from sklearn.metrics import accuracy_score, precision_recall_fscore_support
 from .training_data import TRAINING_DATA, INTENT_MAP
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -18,6 +20,18 @@ class IntentDataset(Dataset):
         return item
     def __len__(self):
         return len(self.labels)
+
+def compute_metrics(eval_pred):
+    predictions, labels = eval_pred
+    preds = np.argmax(predictions, axis=1)
+    precision, recall, f1, _ = precision_recall_fscore_support(labels, preds, average='macro')
+    acc = accuracy_score(labels, preds)
+    return {
+        'accuracy': acc,
+        'f1': f1,
+        'precision': precision,
+        'recall': recall
+    }
 def main():
     model_name = "UBC-NLP/MARBERTv2"
     output_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../intent_classification/intent_model_finetuned'))
@@ -46,12 +60,14 @@ def main():
         evaluation_strategy="epoch",
         save_strategy="epoch",
         load_best_model_at_end=True,
+        metric_for_best_model="accuracy",
     )
     trainer = Trainer(
         model=model,
         args=training_args,
         train_dataset=train_dataset,
         eval_dataset=val_dataset,
+        compute_metrics=compute_metrics,
     )
     logger.info("Starting training (This might take a while on CPU)...")
     trainer.train()
@@ -59,9 +75,11 @@ def main():
     os.makedirs(output_dir, exist_ok=True)
     model.save_pretrained(output_dir)
     tokenizer.save_pretrained(output_dir)
+    best_metric = trainer.state.best_metric
     config = {
         'intent_map': INTENT_MAP,
-        'num_labels': num_labels
+        'num_labels': num_labels,
+        'best_val_acc': best_metric if best_metric is not None else 'N/A'
     }
     with open(os.path.join(output_dir, 'intent_config.json'), 'w', encoding='utf-8') as f:
         json.dump(config, f, ensure_ascii=False, indent=2)

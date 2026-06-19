@@ -236,6 +236,12 @@ def create_order_from_chat(
     )
 
     if product is not None:
+        if product.stock < normalized_quantity:
+            raise ValueError(
+                f"Product '{product.name}' is out of stock (available: {product.stock})."
+            )
+        product.stock -= normalized_quantity
+        product.save(update_fields=["stock"])
         product_name = product.name
         product_emoji = getattr(product, "emoji", "") or "📦"
         unit_price = _decimal_price(product.price)

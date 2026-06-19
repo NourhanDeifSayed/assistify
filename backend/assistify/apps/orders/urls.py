@@ -6,9 +6,17 @@ from .views import (
     OrderStatusUpdateView,
     PlaceOrderView,
     ReviewCreateView,
+    AdminReviewListView,
 )
 
+app_name = "orders"
+
 urlpatterns = [
+    path(
+        "reviews/admin/",
+        AdminReviewListView.as_view(),
+        name="admin-review-list",
+    ),
     path(
         "",
         PlaceOrderView.as_view(),

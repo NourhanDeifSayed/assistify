@@ -117,6 +117,10 @@ class PlaceOrderSerializer(serializers.Serializer):
                 raise serializers.ValidationError(
                     f"Product {product_id} was not found or is inactive."
                 ) from exc
+            if product.stock < item["quantity"]:
+                raise serializers.ValidationError(
+                    f"Product '{product.name}' does not have enough stock (available: {product.stock})."
+                )
             validated_items.append(
                 {
                     "product": product,
@@ -150,6 +154,8 @@ class PlaceOrderSerializer(serializers.Serializer):
         order_items = []
         for item in items_data:
             product = item["product"]
+            product.stock -= item["quantity"]
+            product.save(update_fields=["stock"])
             order_items.append(
                 OrderItem(
                     order=order,
@@ -338,6 +344,13 @@ class ReviewSerializer(serializers.ModelSerializer):
         source="order.order_number",
         read_only=True,
     )
+    user_email = serializers.EmailField(
+        source="user.email",
+        read_only=True,
+    )
+    products = serializers.SerializerMethodField(
+        read_only=True,
+    )
 
     class Meta:
         model = Review
@@ -345,6 +358,8 @@ class ReviewSerializer(serializers.ModelSerializer):
             "id",
             "order",
             "order_number",
+            "user_email",
+            "products",
             "rating",
             "comment",
             "created_at",
@@ -352,8 +367,20 @@ class ReviewSerializer(serializers.ModelSerializer):
         read_only_fields = (
             "id",
             "order_number",
+            "user_email",
+            "products",
             "created_at",
         )
+
+    def get_products(self, obj):
+        return [
+            {
+                "product_id": item.product_id,
+                "product_name": item.product_name,
+                "product_emoji": item.product_emoji,
+            }
+            for item in obj.order.items.all()
+        ]
 
     def validate_rating(self, value):
         if value < 1 or value > 5:

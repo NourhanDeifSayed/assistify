@@ -5,7 +5,7 @@ from django.utils import timezone
 from rest_framework import generics, permissions, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
-from .models import Order, TrackingUpdate
+from .models import Order, TrackingUpdate, Review
 from .serializers import (
     GuestOrderTrackingInputSerializer,
     OrderSerializer,
@@ -266,3 +266,49 @@ class ReviewCreateView(generics.CreateAPIView):
         serializer.save(
             user=self.request.user,
         )
+
+
+from assistify.apps.users.views import IsAdminUser
+
+class AdminReviewListView(generics.ListAPIView):
+    serializer_class = ReviewSerializer
+    permission_classes = [IsAdminUser]
+
+    def get_queryset(self):
+        queryset = Review.objects.select_related(
+            "order",
+            "user",
+        ).prefetch_related(
+            "order__items",
+        ).all().order_by("-created_at")
+
+        search = self.request.query_params.get("search", "").strip()
+        if search:
+            from django.db import models
+            queryset = queryset.filter(
+                models.Q(comment__icontains=search) |
+                models.Q(order__order_number__icontains=search) |
+                models.Q(user__email__icontains=search)
+            )
+
+        rating = self.request.query_params.get("rating")
+        if rating:
+            queryset = queryset.filter(rating=rating)
+
+        product_id = self.request.query_params.get("product")
+        if product_id:
+            queryset = queryset.filter(order__items__product_id=product_id)
+
+        user_id = self.request.query_params.get("user")
+        if user_id:
+            queryset = queryset.filter(user_id=user_id)
+
+        start_date = self.request.query_params.get("start_date")
+        if start_date:
+            queryset = queryset.filter(created_at__date__gte=start_date)
+
+        end_date = self.request.query_params.get("end_date")
+        if end_date:
+            queryset = queryset.filter(created_at__date__lte=end_date)
+
+        return queryset

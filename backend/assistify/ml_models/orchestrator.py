@@ -84,6 +84,32 @@ _SHOPIFY_ENABLED = (
     in {"1", "true", "yes", "on"}
 )
 
+
+@dataclass
+class ModelContext:
+    """
+    Backward-compatible context object used by the legacy ML tests
+    and any older code that imports ModelContext.
+    """
+
+    user_id: Optional[int] = None
+    message: str = ""
+    intent: Optional[Dict[str, Any]] = None
+    sentiment: Optional[Dict[str, Any]] = None
+    recommendations: Optional[List[Dict[str, Any]]] = None
+    response: Optional[Dict[str, Any]] = None
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "user_id": self.user_id,
+            "message": self.message,
+            "intent": self.intent,
+            "sentiment": self.sentiment,
+            "recommendations": self.recommendations or [],
+            "response": self.response,
+        }
+
+
 def _enrich_with_shopify_variant(
     rec: Dict,
     shopify_products: List[Dict],
@@ -2253,6 +2279,50 @@ class ModelOrchestrator:
         bundle = SignalBundle(message=text)
         _LanguageDetector.run(bundle)
         return bundle.entities
+
+    def _classify_intent(self, message):
+        from .intent_classification.model import IntentClassificationModel
+        return IntentClassificationModel().predict(message)
+
+    def _analyze_sentiment(self, message):
+        from .sentiment_analysis.model import SentimentAnalysisModel
+        return SentimentAnalysisModel().predict(message)
+
+    def _get_recommendations(self, intent, user_id=None, **kwargs):
+        from .product_recommendation.model import ProductRecommendationModel
+
+        model = ProductRecommendationModel()
+        result = model.predict(intent=intent)
+
+        if isinstance(result, dict):
+            return result.get("recommendations", [])
+
+        return result or []
+
+    def _generate_response(
+        self,
+        message,
+        intent=None,
+        sentiment=None,
+        recommendations=None,
+        **kwargs,
+    ):
+        from .response_generation.model import ResponseGenerationModel
+
+        intent_value = intent.get("intent") if isinstance(intent, dict) else intent
+        sentiment_value = (
+            sentiment.get("sentiment")
+            if isinstance(sentiment, dict)
+            else sentiment
+        )
+
+        context = {
+            "intent": intent_value,
+            "sentiment": sentiment_value,
+            "recommendations": recommendations or [],
+        }
+
+        return ResponseGenerationModel().generate(message, context=context)
 
     def __del__(self):
         gc.collect()

@@ -1,8 +1,5 @@
 from rest_framework import serializers
-
-from .models import SupportTicket
-
-
+from .models import SupportTicket, FAQEntry
 class SupportTicketCreateSerializer(serializers.ModelSerializer):
     class Meta:
         model = SupportTicket
@@ -142,3 +139,19 @@ class SupportTicketReplySerializer(serializers.Serializer):
 
     def validate_response(self, value):
         return value.strip()
+
+
+class FAQEntrySerializer(serializers.ModelSerializer):
+    class Meta:
+        model = FAQEntry
+        fields = (
+            "id",
+            "question",
+            "answer",
+            "category",
+            "keywords",
+            "display_order",
+            "is_published",
+            "created_at",
+            "updated_at",
+        )

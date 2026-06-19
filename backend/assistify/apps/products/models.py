@@ -12,6 +12,9 @@ class Product(models.Model):
     features = models.JSONField(default=list, blank=True, help_text="List of product features")
     suitable_for = models.JSONField(default=list, blank=True, help_text="List of user types or conditions this is suitable for")
     use_cases = models.JSONField(default=list, blank=True, help_text="List of scenarios where this product is used")
+    category = models.CharField(max_length=100, blank=True, default="")
+    stock = models.IntegerField(default=10)
+    image = models.CharField(max_length=500, blank=True, default="")
     related_products = models.ManyToManyField(
         "self",
         blank=True,

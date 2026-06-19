@@ -14,13 +14,27 @@ from .views import (
     ChatView,
     ConversationHistoryView,
     WhatsAppWebhookView,
+    AdminConversationListView,
+    AdminConversationDetailView,
 )
+
+app_name = "chat"
 
 urlpatterns = [
     path(
         "",
         ChatView.as_view(),
         name="chat",
+    ),
+    path(
+        "admin/conversations/",
+        AdminConversationListView.as_view(),
+        name="admin-conversation-list",
+    ),
+    path(
+        "admin/conversations/<int:pk>/",
+        AdminConversationDetailView.as_view(),
+        name="admin-conversation-detail",
     ),
     path(
         "feedback/",
