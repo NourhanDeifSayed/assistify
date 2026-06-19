@@ -776,23 +776,23 @@ Administrators can manage:
 
 ### Admin Orders Management
 
-![Admin Orders](docs/screenshots/admin-orders.png)
+![Admin Orders](docs/screenshots/admin-orders.jpeg)
 
 ### Admin Orders Management (Alternative)
 
-![Admin Orders Alt](docs/screenshots/admin-orders-alt.png)
+![Admin Orders Alt](docs/screenshots/admin-orders-alt.jpeg)
 
 ### Order History
 
-![Order History 1](docs/screenshots/order-history-1.png)
+![Order History 1](docs/screenshots/order-history-1.jpeg)
 
 ### Order History (Alternative)
 
-![Order History 2](docs/screenshots/order-history-2.png)
+![Order History 2](docs/screenshots/order-history-2.jpeg)
 
 ### User Profile
 
-![User Profile](docs/screenshots/user-profile.png)
+![User Profile](docs/screenshots/user-profile.jpeg)
 
 ### Support Notifications
 
