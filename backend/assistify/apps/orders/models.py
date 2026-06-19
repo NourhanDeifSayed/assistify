@@ -30,6 +30,12 @@ class Order(models.Model):
         related_name="orders",
     )
 
+    customer_name = models.CharField(
+        max_length=255,
+        default="",
+        blank=True,
+    )
+
     customer_email = models.EmailField()
 
     status = models.CharField(

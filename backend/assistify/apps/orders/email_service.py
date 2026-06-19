@@ -24,6 +24,7 @@ def send_order_confirmation(order):
     subject = f"Order Confirmation - {order.order_number}"
 
     body = (
+        f"Hello {order.customer_name},\n\n"
         "Thank you for ordering from Assistify.\n\n"
         f"Order number: {order.order_number}\n"
         f"Status: {order.get_status_display()}\n"

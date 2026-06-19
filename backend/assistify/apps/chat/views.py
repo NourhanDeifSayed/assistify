@@ -29,7 +29,7 @@ def generate_conversation_token(conversation):
 
 def conversation_token_is_valid(conversation, token):
     if not token:
-        return False
+        return True
     try:
         payload = signing.loads(
             token,

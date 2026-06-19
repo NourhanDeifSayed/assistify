@@ -16,7 +16,6 @@ export default function AdminProducts() {
   const [error, setError] = useState(null);
   const [success, setSuccess] = useState(null);
 
-  // Filters state
   const [search, setSearch] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("");
   const [activeFilter, setActiveFilter] = useState("");
@@ -27,12 +26,10 @@ export default function AdminProducts() {
   const [page, setPage] = useState(1);
   const [totalCount, setTotalCount] = useState(0);
 
-  // Modals state
   const [editingProduct, setEditingProduct] = useState(null);
   const [showAddModal, setShowAddModal] = useState(false);
   const [confirmDeleteProduct, setConfirmDeleteProduct] = useState(null);
 
-  // Form states
   const [formName, setFormName] = useState("");
   const [formDesc, setFormDesc] = useState("");
   const [formCategory, setFormCategory] = useState("Devices");
@@ -62,57 +59,7 @@ export default function AdminProducts() {
         if (params[key] === "") delete params[key];
       });
 
-      const data = await fetchProducts(search); // Wait, fetchProducts in api.js: `/products/?search=...`.
-      // Let's call our advanced list view since we added filtering to backend ProductListCreateView!
-      // In api.js, fetchProducts does: `request('/products/' + q)`
-      // Let's modify fetchProducts in api.js to accept params object!
-      // Wait, let's look at fetchProducts in api.js:
-      // export async function fetchProducts(search = "") { ... }
-      // Wait, we can construct the query params dynamically if we pass them.
-      // Let's look at how we fetch products. In api.js:
-      // `request(/products/${q})`
-      // We can construct the query string manually or update the call!
-      // Let's write a dedicated fetchAdminProducts in api.js?
-      // Wait, in api.js, fetchProducts only accepts search string. Let's see: we can construct the URL parameters here or write a fetchAdminProducts method in api.js.
-      // Let's check `backend/assistify/apps/products/views.py`: `ProductListCreateView` has the filtering.
-      // Let's check what we registered in api.js: we have `fetchProducts`. We can pass query parameters to it, or we can use fetchProducts with params!
-      // Let's see: we can construct a URLSearchParams from our params, and fetch it.
-      // Let's write the query constructor:
-      const query = new URLSearchParams(params).toString();
-      // We will make a direct fetch or call fetchProducts. Since fetchProducts is in api.js, let's look at api.js line 48:
-      // `export async function fetchProducts(search = "")`
-      // Wait, we can just use fetch `/products/?${query}` using our request function. Oh! In `api.js`, `request` is a local helper and is not exported!
-      // But we can export it or just use fetchProducts since we can update `fetchProducts` or call it.
-      // Let's check if we can update fetchProducts to support either a string or an object!
-      // Yes! Let's update `fetchProducts` in `api.js` to handle both!
-      // Let's check:
-      // If it's a string, append it as search. If it's an object, serialize it!
-      // Wait, we already have `fetchProducts(search = "")`. Let's update it in api.js so it can take a params object or a query string.
-      // Let's make sure we do that or write our fetch here using fetch, but wait, we already have a JWT token header, etc. in `api.js` request.
-      // So using `api.js` helpers is better. Let's make sure we check `api.js` and update it if needed.
-      // Actually, we can check how `fetchProducts` is implemented:
-      // `export async function fetchProducts(search = "") { const q = search ? ...; return request('/products/' + q); }`
-      // If we call `fetchProducts(query)` where `query` is the URLSearchParams string, e.g. `fetchProducts("?search=...")`, it will fetch `/products/??search=...`.
-      // Ah! That will have double question marks!
-      // So let's write `fetchAdminProducts` in `api.js`?
-      // Oh! We didn't add `fetchAdminProducts` to `api.js`. Wait, did we?
-      // In the previous step, we added:
-      // No, we didn't add `fetchAdminProducts`, we only added `fetchAdminTickets`, `fetchAdminUsers`, etc.
-      // Let's check what we did. We added `adminUpdateProduct`, `adminCreateProduct`, `adminDeactivateProduct`.
-      // Let's write a query string constructor that works with `fetchProducts`:
-      // If we pass the constructed query parameter string directly, but wait, `fetchProducts` does:
-      // `const q = search ? '?search=' + encodeURIComponent(search) : ""`
-      // So it always forces `?search=`.
-      // To bypass this and fetch with full filters, let's update `fetchProducts` in `api.js`!
-      // Yes! Let's modify `fetchProducts` in `api.js` to accept a query string or params object:
-      // Let's view `fetchProducts` in `api.js` and modify it.
-      // Wait! Let's do that in a moment. Let's first look at how we can implement `loadProducts`:
-      // If we update `fetchProducts` in `api.js` to:
-      // `export async function fetchProducts(params = "") { ... }`
-      // Let's do that!
-      
       const queryParams = new URLSearchParams(params).toString();
-      // Let's make a request directly or fetch using a fetch helper. Wait, we can fetch via fetch:
       const token = localStorage.getItem("access_token");
       const res = await fetch(`http://localhost:8000/api/v1/products/?${queryParams}`, {
         headers: {
@@ -120,11 +67,11 @@ export default function AdminProducts() {
           ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
       });
-      const data = await res.json();
-      if (!res.ok) throw data;
+      const responseData = await res.json();
+      if (!res.ok) throw responseData;
 
-      setProducts(data.results || data);
-      setTotalCount(data.count || (data.results ? data.results.length : 0));
+      setProducts(responseData.results || responseData);
+      setTotalCount(responseData.count || (responseData.results ? responseData.results.length : 0));
     } catch (err) {
       setError(err.detail || "Failed to load products.");
     } finally {
@@ -223,7 +170,6 @@ export default function AdminProducts() {
   return (
     <AdminLayout title="Products Management">
       <div className={styles.container}>
-        {/* Top Header Actions */}
         <div className={styles.actionsBar}>
           <div className={styles.searchBox}>
             <span>🔍</span>
@@ -243,7 +189,6 @@ export default function AdminProducts() {
           </button>
         </div>
 
-        {/* Filters & Sorting */}
         <div className={styles.filterGrid}>
           <select
             value={categoryFilter}
@@ -324,7 +269,6 @@ export default function AdminProducts() {
         {error && <div className={styles.errorAlert}>{error}</div>}
         {success && <div className={styles.successAlert}>{success}</div>}
 
-        {/* Product Table */}
         {loading ? (
           <p className={styles.loading}>Loading products...</p>
         ) : products.length === 0 ? (
@@ -400,7 +344,6 @@ export default function AdminProducts() {
           </div>
         )}
 
-        {/* Pagination */}
         {totalCount > 10 && (
           <div className={styles.pagination}>
             <button
@@ -419,7 +362,6 @@ export default function AdminProducts() {
           </div>
         )}
 
-        {/* Add/Edit Product Modal */}
         {(showAddModal || editingProduct) && (
           <div className={styles.modalOverlay} onClick={() => { setShowAddModal(false); setEditingProduct(null); }}>
             <div className={styles.modalContent} onClick={(e) => e.stopPropagation()}>
@@ -540,7 +482,6 @@ export default function AdminProducts() {
           </div>
         )}
 
-        {/* Deactivation Confirmation Modal */}
         {confirmDeleteProduct && (
           <div className={styles.modalOverlay} onClick={() => setConfirmDeleteProduct(null)}>
             <div className={styles.modalContentSmall} onClick={(e) => e.stopPropagation()}>

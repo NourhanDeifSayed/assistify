@@ -2,8 +2,11 @@ from __future__ import annotations
 
 import logging
 import re
+from decimal import Decimal
 from enum import Enum
 from typing import Optional, TYPE_CHECKING
+from django.core.validators import validate_email
+from django.core.exceptions import ValidationError
 
 if TYPE_CHECKING:
     from .orchestrator import SignalBundle
@@ -172,10 +175,23 @@ _NAME_BLACKLIST = frozenset(
 class PurchaseState(str, Enum):
     IDLE = "idle"
     AWAITING_NAME = "awaiting_name"
+    AWAITING_EMAIL = "awaiting_email"
     AWAITING_PHONE = "awaiting_phone"
     AWAITING_ADDRESS = "awaiting_address"
     AWAITING_QUANTITY = "awaiting_quantity"
     READY_TO_ORDER = "ready_to_order"
+
+
+def extract_email(text: str) -> Optional[str]:
+    match = re.search(r'[\w\.-]+@[\w\.-]+\.\w+', text)
+    if match:
+        email = match.group(0).strip().lower()
+        try:
+            validate_email(email)
+            return email
+        except ValidationError:
+            return None
+    return None
 
 
 def extract_name(message: str, language: str) -> Optional[str]:
@@ -256,9 +272,11 @@ class StateMachine:
 
         handlers = {
             PurchaseState.AWAITING_NAME: StateMachine._collect_name,
+            PurchaseState.AWAITING_EMAIL: StateMachine._collect_email,
             PurchaseState.AWAITING_PHONE: StateMachine._collect_phone,
             PurchaseState.AWAITING_ADDRESS: StateMachine._collect_address,
             PurchaseState.AWAITING_QUANTITY: StateMachine._collect_quantity,
+            PurchaseState.READY_TO_ORDER: StateMachine._confirm_order,
         }
 
         handler = handlers.get(bundle.purchase_state)
@@ -273,6 +291,21 @@ class StateMachine:
         bundle.intent = "purchase_intent"
         bundle.intent_conf = 1.0
         bundle.response = ""
+
+        # Clear stale checkout fields for a new order
+        bundle.phone = ""
+        bundle.email = ""
+        bundle.address = ""
+        bundle.quantity = None
+
+        if conv:
+            conv.phone = None
+            conv.email = None
+            conv.address = None
+            conv.quantity = None
+            conv.order_id = None
+            conv.purchase_state = PurchaseState.IDLE.value
+            conv.save(update_fields=["phone", "email", "address", "quantity", "order_id", "purchase_state"])
 
         if not bundle.last_product_snapshot:
             if bundle.language == "ar":
@@ -289,89 +322,109 @@ class StateMachine:
             bundle.response_conf = 0.95
             return True
 
-        product_name = (
-            bundle.last_product_snapshot.get("name")
-            or bundle.last_product_snapshot.get("title")
-            or "المنتج"
-        )
-
-        if not bundle.user_name:
-            StateMachine._set_state(
-                bundle,
-                conv,
-                PurchaseState.AWAITING_NAME,
-            )
-
+        # Check stock of the selected product first
+        from assistify.apps.products.models import Product
+        product_id = bundle.last_product_id or (bundle.last_product_snapshot.get("product_id") if bundle.last_product_snapshot else None)
+        product = None
+        if product_id:
+            product = Product.objects.filter(id=product_id).first()
+        if product and product.stock <= 0:
             if bundle.language == "ar":
-                bundle.response = (
-                    f"تمام، هنبدأ طلب {product_name}. "
-                    "محتاجة اسمك الكامل عشان أكمل الطلب."
-                )
+                bundle.response = f"عذراً، منتج '{product.name}' غير متوفر في المخزن حالياً."
             else:
-                bundle.response = (
-                    f"Great, let's start ordering {product_name}. "
-                    "Please share your full name."
-                )
+                bundle.response = f"Sorry, '{product.name}' is currently out of stock."
+            bundle.response_conf = 0.95
+            return True
 
+        # Now start collecting fields
+        return StateMachine._transition_to_next_missing_field(bundle, conv)
+
+    @staticmethod
+    def _transition_to_next_missing_field(bundle: "SignalBundle", conv) -> bool:
+        if not bundle.user_name:
+            StateMachine._set_state(bundle, conv, PurchaseState.AWAITING_NAME)
+            if bundle.language == "ar":
+                bundle.response = "محتاجة اسمك الكامل عشان أكمل الطلب."
+            else:
+                bundle.response = "Please share your full name."
+            bundle.response_conf = 0.95
+            return True
+
+        if not bundle.email:
+            StateMachine._set_state(bundle, conv, PurchaseState.AWAITING_EMAIL)
+            if bundle.language == "ar":
+                bundle.response = "ممكن تقوليلي البريد الإلكتروني بتاعك عشان نبعتلك تأكيد الطلب؟"
+            else:
+                bundle.response = "Could you please share your email address so we can send the order confirmation?"
             bundle.response_conf = 0.95
             return True
 
         if not bundle.phone:
-            StateMachine._set_state(
-                bundle,
-                conv,
-                PurchaseState.AWAITING_PHONE,
-            )
-
+            StateMachine._set_state(bundle, conv, PurchaseState.AWAITING_PHONE)
             if bundle.language == "ar":
-                bundle.response = (
-                    f"أهلًا {bundle.user_name}. ممكن رقم الموبايل؟"
-                )
+                bundle.response = f"تمام يا {bundle.user_name}. ممكن رقم الموبايل؟"
             else:
-                bundle.response = (
-                    f"Hello {bundle.user_name}. "
-                    "Could you share your phone number?"
-                )
-
+                bundle.response = f"Hello {bundle.user_name}. Could you share your phone number?"
             bundle.response_conf = 0.95
             return True
 
         if not bundle.address:
-            StateMachine._set_state(
-                bundle,
-                conv,
-                PurchaseState.AWAITING_ADDRESS,
-            )
-
+            StateMachine._set_state(bundle, conv, PurchaseState.AWAITING_ADDRESS)
             if bundle.language == "ar":
-                bundle.response = "تمام، دلوقتي محتاجة عنوان التوصيل."
+                bundle.response = "تمام، دلوقتي محتاجة عنوان التوصيل بالتفصيل."
             else:
-                bundle.response = "Great. Now I need your delivery address."
-
+                bundle.response = "Great. Now I need your detailed delivery address."
             bundle.response_conf = 0.95
             return True
 
         if not bundle.quantity:
-            StateMachine._set_state(
-                bundle,
-                conv,
-                PurchaseState.AWAITING_QUANTITY,
-            )
-
+            StateMachine._set_state(bundle, conv, PurchaseState.AWAITING_QUANTITY)
             if bundle.language == "ar":
                 bundle.response = "تمام، كام قطعة تحبي تطلبي؟"
             else:
                 bundle.response = "Great. How many units would you like?"
-
             bundle.response_conf = 0.95
             return True
 
-        StateMachine._set_state(
-            bundle,
-            conv,
-            PurchaseState.READY_TO_ORDER,
-        )
-        return False
+        # All fields are present! Transition to READY_TO_ORDER and show summary.
+        StateMachine._set_state(bundle, conv, PurchaseState.READY_TO_ORDER)
+        
+        product_price = Decimal("0.00")
+        product_name = "المنتج"
+        if bundle.last_product_snapshot:
+            product_price = Decimal(str(bundle.last_product_snapshot.get("price", "0.00")))
+            product_name = bundle.last_product_snapshot.get("name") or bundle.last_product_snapshot.get("title") or product_name
+        
+        total_price = (product_price * Decimal(str(bundle.quantity))) + Decimal("50.00")
+        
+        if bundle.language == "ar":
+            bundle.response = (
+                f"إليك تفاصيل طلبك:\n"
+                f"- المنتج: {product_name}\n"
+                f"- الكمية: {bundle.quantity}\n"
+                f"- الاسم: {bundle.user_name}\n"
+                f"- البريد الإلكتروني: {bundle.email}\n"
+                f"- الهاتف: {bundle.phone}\n"
+                f"- العنوان: {bundle.address}\n"
+                f"- طريقة الدفع: الدفع عند الاستلام\n"
+                f"- السعر الإجمالي: {total_price} جنيه\n\n"
+                f"هل تؤكد هذا الطلب؟ (اكتب 'نعم' أو 'تأكيد' لإتمام الطلب، أو 'إلغاء' للتراجع)"
+            )
+        else:
+            bundle.response = (
+                f"Here is a summary of your order:\n"
+                f"- Product: {product_name}\n"
+                f"- Quantity: {bundle.quantity}\n"
+                f"- Customer Name: {bundle.user_name}\n"
+                f"- Email: {bundle.email}\n"
+                f"- Phone: {bundle.phone}\n"
+                f"- Address: {bundle.address}\n"
+                f"- Payment Method: Cash on delivery\n"
+                f"- Total Price: EGP {total_price}\n\n"
+                f"Do you confirm this order? (Please reply with 'yes' or 'confirm' to place the order, or 'cancel' to stop)"
+            )
+        bundle.response_conf = 0.95
+        return True
 
     @staticmethod
     def _collect_name(bundle: "SignalBundle", conv) -> bool:
@@ -407,11 +460,6 @@ class StateMachine:
         bundle.user_name = name
         bundle.intent = "introduce_name"
         bundle.intent_conf = 1.0
-        StateMachine._set_state(
-            bundle,
-            conv,
-            PurchaseState.AWAITING_PHONE,
-        )
 
         if conv:
             conv.user_name = name
@@ -419,7 +467,6 @@ class StateMachine:
                 conv.save(
                     update_fields=[
                         "user_name",
-                        "purchase_state",
                     ]
                 )
             except Exception as exc:
@@ -428,19 +475,32 @@ class StateMachine:
                     exc,
                 )
 
-        if bundle.phone:
-            return StateMachine._collect_phone(bundle, conv)
+        return StateMachine._transition_to_next_missing_field(bundle, conv)
 
-        if bundle.language == "ar":
-            bundle.response = f"أهلًا {name}. ممكن رقم الموبايل؟"
-        else:
-            bundle.response = (
-                f"Nice to meet you, {name}. "
-                "Could you share your phone number?"
-            )
+    @staticmethod
+    def _collect_email(bundle: "SignalBundle", conv) -> bool:
+        email = extract_email(bundle.message)
 
-        bundle.response_conf = 0.95
-        return True
+        if not email:
+            if bundle.language == "ar":
+                bundle.response = "البريد الإلكتروني غير صحيح. من فضلك اكتب بريد إلكتروني صحيح (مثل: name@example.com)."
+            else:
+                bundle.response = "Invalid email format. Please provide a valid email address (e.g., name@example.com)."
+            bundle.response_conf = 0.95
+            return True
+
+        bundle.email = email
+        bundle.intent = "provide_email"
+        bundle.intent_conf = 1.0
+
+        if conv:
+            conv.email = email
+            try:
+                conv.save(update_fields=["email"])
+            except Exception as exc:
+                logger.warning("Could not save email: %s", exc)
+
+        return StateMachine._transition_to_next_missing_field(bundle, conv)
 
     @staticmethod
     def _collect_phone(bundle: "SignalBundle", conv) -> bool:
@@ -464,11 +524,6 @@ class StateMachine:
         bundle.phone = phone
         bundle.intent = "provide_phone"
         bundle.intent_conf = 1.0
-        StateMachine._set_state(
-            bundle,
-            conv,
-            PurchaseState.AWAITING_ADDRESS,
-        )
 
         if conv:
             conv.phone = phone
@@ -476,7 +531,6 @@ class StateMachine:
                 conv.save(
                     update_fields=[
                         "phone",
-                        "purchase_state",
                     ]
                 )
             except Exception as exc:
@@ -485,16 +539,7 @@ class StateMachine:
                     exc,
                 )
 
-        if bundle.address:
-            return StateMachine._collect_address(bundle, conv)
-
-        if bundle.language == "ar":
-            bundle.response = "تمام، دلوقتي محتاجة عنوان التوصيل."
-        else:
-            bundle.response = "Got it. Now I need your delivery address."
-
-        bundle.response_conf = 0.95
-        return True
+        return StateMachine._transition_to_next_missing_field(bundle, conv)
 
     @staticmethod
     def _collect_address(bundle: "SignalBundle", conv) -> bool:
@@ -522,11 +567,6 @@ class StateMachine:
         bundle.address = candidate
         bundle.intent = "provide_address"
         bundle.intent_conf = 1.0
-        StateMachine._set_state(
-            bundle,
-            conv,
-            PurchaseState.AWAITING_QUANTITY,
-        )
 
         if conv:
             conv.address = candidate
@@ -534,7 +574,6 @@ class StateMachine:
                 conv.save(
                     update_fields=[
                         "address",
-                        "purchase_state",
                     ]
                 )
             except Exception as exc:
@@ -543,16 +582,7 @@ class StateMachine:
                     exc,
                 )
 
-        if bundle.quantity:
-            return StateMachine._collect_quantity(bundle, conv)
-
-        if bundle.language == "ar":
-            bundle.response = "تمام، كام قطعة تحبي تطلبي؟"
-        else:
-            bundle.response = "Got it. How many units would you like?"
-
-        bundle.response_conf = 0.95
-        return True
+        return StateMachine._transition_to_next_missing_field(bundle, conv)
 
     @staticmethod
     def _collect_quantity(bundle: "SignalBundle", conv) -> bool:
@@ -560,7 +590,7 @@ class StateMachine:
         text = bundle.message.strip()
 
         if not quantity:
-            match = re.search(r"\b(\d{1,2})\b", text)
+            match = re.search(r"(?<!-)\b(\d{1,2})\b", text)
             if match:
                 quantity = int(match.group(1))
 
@@ -573,14 +603,24 @@ class StateMachine:
             bundle.response_conf = 0.95
             return True
 
+        # Check stock of the product for requested quantity
+        from assistify.apps.products.models import Product
+        product_id = bundle.last_product_id or (bundle.last_product_snapshot.get("product_id") if bundle.last_product_snapshot else None)
+        product = None
+        if product_id:
+            product = Product.objects.filter(id=product_id).first()
+        if product:
+            if product.stock < quantity:
+                if bundle.language == "ar":
+                    bundle.response = f"عذراً، الكمية المطلوبة غير متوفرة. الكمية المتاحة حالياً هي {product.stock} فقط."
+                else:
+                    bundle.response = f"Sorry, the requested quantity is not available. The currently available stock is only {product.stock}."
+                bundle.response_conf = 0.95
+                return True
+
         bundle.quantity = quantity
         bundle.intent = "provide_quantity"
         bundle.intent_conf = 1.0
-        StateMachine._set_state(
-            bundle,
-            conv,
-            PurchaseState.READY_TO_ORDER,
-        )
 
         if conv:
             conv.quantity = quantity
@@ -588,7 +628,6 @@ class StateMachine:
                 conv.save(
                     update_fields=[
                         "quantity",
-                        "purchase_state",
                     ]
                 )
             except Exception as exc:
@@ -597,8 +636,56 @@ class StateMachine:
                     exc,
                 )
 
-        # Returning False lets the orchestrator immediately create the order.
-        return False
+        return StateMachine._transition_to_next_missing_field(bundle, conv)
+
+    @staticmethod
+    def _confirm_order(bundle: "SignalBundle", conv) -> bool:
+        text = bundle.message.strip().lower()
+        confirm_words = {"yes", "confirm", "place order", "نعم", "تأكيد", "اكد الطلب", "موافق", "تمام"}
+        cancel_words = {"cancel", "stop", "إلغاء", "الغي الطلب", "تراجع"}
+
+        if any(w in text for w in confirm_words):
+            # Explicit confirmation received, returning False lets orchestrator create the order.
+            return False
+
+        if any(w in text for w in cancel_words):
+            return StateMachine._handle_cancel(bundle, conv)
+
+        # Neither confirm nor cancel. Show summary again and ask them to confirm.
+        product_name = "المنتج"
+        product_price = Decimal("0.00")
+        if bundle.last_product_snapshot:
+            product_price = Decimal(str(bundle.last_product_snapshot.get("price", "0.00")))
+            product_name = bundle.last_product_snapshot.get("name") or bundle.last_product_snapshot.get("title") or product_name
+        
+        total_price = (product_price * Decimal(str(bundle.quantity))) + Decimal("50.00")
+
+        if bundle.language == "ar":
+            bundle.response = (
+                f"لم أفهم ردك بشكل واضح. يرجى تأكيد الطلب:\n"
+                f"- المنتج: {product_name}\n"
+                f"- الكمية: {bundle.quantity}\n"
+                f"- الاسم: {bundle.user_name}\n"
+                f"- البريد الإلكتروني: {bundle.email}\n"
+                f"- الهاتف: {bundle.phone}\n"
+                f"- العنوان: {bundle.address}\n"
+                f"- السعر الإجمالي: {total_price} جنيه\n\n"
+                f"يرجى الرد بـ 'تأكيد' أو 'نعم' لإتمام الطلب، أو 'إلغاء' للتراجع."
+            )
+        else:
+            bundle.response = (
+                f"I didn't quite get that. Please confirm your order:\n"
+                f"- Product: {product_name}\n"
+                f"- Quantity: {bundle.quantity}\n"
+                f"- Customer Name: {bundle.user_name}\n"
+                f"- Email: {bundle.email}\n"
+                f"- Phone: {bundle.phone}\n"
+                f"- Address: {bundle.address}\n"
+                f"- Total Price: EGP {total_price}\n\n"
+                f"Please reply with 'yes' or 'confirm' to place the order, or 'cancel' to stop."
+            )
+        bundle.response_conf = 0.95
+        return True
 
     @staticmethod
     def _handle_cancel(bundle: "SignalBundle", conv) -> bool:
@@ -609,6 +696,13 @@ class StateMachine:
             conv,
             PurchaseState.IDLE,
         )
+
+        if conv:
+            conv.phone = None
+            conv.email = None
+            conv.address = None
+            conv.quantity = None
+            conv.save(update_fields=["phone", "email", "address", "quantity"])
 
         if bundle.language == "ar":
             bundle.response = "تم إلغاء الطلب. أقدر أساعدك في حاجة تانية؟"

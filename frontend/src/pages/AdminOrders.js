@@ -275,7 +275,18 @@ export default function AdminOrders() {
                     </td>
 
                     <td>
-                      {order.customer_email}
+                      <div><strong>{order.customer_name || "Guest"}</strong></div>
+                      <div style={{ fontSize: "12px", color: "#667085", marginTop: "2px" }}>{order.customer_email}</div>
+                      {order.phone && (
+                        <div style={{ fontSize: "12px", color: "#475467", marginTop: "4px" }}>
+                          📞 {order.phone}
+                        </div>
+                      )}
+                      {order.delivery_address && (
+                        <div style={{ fontSize: "12px", color: "#475467", marginTop: "4px", maxWidth: "220px", wordBreak: "break-word" }} title={order.delivery_address}>
+                          📍 {order.delivery_address}
+                        </div>
+                      )}
                     </td>
 
                     <td>

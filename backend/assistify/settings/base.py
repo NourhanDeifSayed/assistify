@@ -164,7 +164,7 @@ REST_FRAMEWORK = {
 
 EMAIL_BACKEND = config(
     "EMAIL_BACKEND",
-    default="django.core.mail.backends.smtp.EmailBackend",
+    default="django.core.mail.backends.console.EmailBackend",
 )
 
 EMAIL_HOST = config(
@@ -196,7 +196,7 @@ EMAIL_HOST_PASSWORD = config(
 
 DEFAULT_FROM_EMAIL = config(
     "DEFAULT_FROM_EMAIL",
-    default=EMAIL_HOST_USER,
+    default="noreply@assistify.com" if not EMAIL_HOST_USER else EMAIL_HOST_USER,
 )
 
 EMAIL_TIMEOUT = config(

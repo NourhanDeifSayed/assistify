@@ -4,6 +4,7 @@ from django.db import transaction
 from django.utils import timezone
 from rest_framework import serializers
 from .models import Order, OrderItem, Review, TrackingUpdate
+from .email_service import send_order_confirmation
 
 class TrackingUpdateSerializer(serializers.ModelSerializer):
     class Meta:
@@ -43,6 +44,11 @@ class OrderItemInputSerializer(serializers.Serializer):
     )
 
 class PlaceOrderSerializer(serializers.Serializer):
+    customer_name = serializers.CharField(
+        required=True,
+        allow_blank=False,
+        max_length=255,
+    )
     customer_email = serializers.EmailField()
     payment_method = serializers.ChoiceField(
         choices=Order.PaymentMethod.choices,
@@ -173,6 +179,10 @@ class PlaceOrderSerializer(serializers.Serializer):
             status="Order Placed",
             location="Warehouse",
         )
+        transaction.on_commit(
+            lambda: send_order_confirmation(order),
+            robust=True,
+        )
         return order
 
 class OrderSerializer(serializers.ModelSerializer):
@@ -190,6 +200,7 @@ class OrderSerializer(serializers.ModelSerializer):
         fields = (
             "id",
             "order_number",
+            "customer_name",
             "customer_email",
             "status",
             "payment_method",

@@ -20,7 +20,7 @@ urlpatterns = [
     path(
         "",
         PlaceOrderView.as_view(),
-        name="order-place",
+        name="order-placement",
     ),
     path(
         "list/",

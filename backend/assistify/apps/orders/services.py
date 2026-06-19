@@ -178,6 +178,7 @@ def create_order_from_chat(
     email: str = "",
     user=None,
     product_snapshot: Optional[Dict[str, Any]] = None,
+    customer_name: str = "",
 ) -> Order:
     """
     Create a complete local Assistify order from the chat checkout flow.
@@ -230,6 +231,12 @@ def create_order_from_chat(
     if not clean_email:
         clean_email = "customer@example.com"
 
+    clean_name = str(customer_name or "").strip()
+    if not clean_name and authenticated_user is not None:
+        clean_name = getattr(authenticated_user, "username", "")
+    if not clean_name:
+        clean_name = "Guest Customer"
+
     product = _resolve_local_product(
         product_id=product_id,
         product_snapshot=snapshot,
@@ -276,6 +283,7 @@ def create_order_from_chat(
 
     order = Order.objects.create(
         user=authenticated_user,
+        customer_name=clean_name,
         customer_email=clean_email,
         phone=clean_phone,
         delivery_address=clean_address,
@@ -300,11 +308,6 @@ def create_order_from_chat(
         date=timezone.now().date(),
         status=order.get_status_display(),
         location="Warehouse",
-    )
-
-    transaction.on_commit(
-        lambda: send_order_confirmation(order),
-        robust=True,
     )
 
     return order

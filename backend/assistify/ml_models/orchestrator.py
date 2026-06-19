@@ -14,6 +14,7 @@ from assistify.apps.orders.services import (
     generate_order_tracking_token,
     get_local_catalog_products,
 )
+from assistify.apps.orders.email_service import send_order_confirmation
 from assistify.apps.shopify_service import get_shopify_products, create_shopify_draft_order
 from assistify.apps.support.models import SupportTicket
 from assistify.apps.support.services import (
@@ -1112,6 +1113,7 @@ class _CheckoutAIStage:
         
         active_checkout_states = {
             PurchaseState.AWAITING_NAME,
+            PurchaseState.AWAITING_EMAIL,
             PurchaseState.AWAITING_PHONE,
             PurchaseState.AWAITING_ADDRESS,
             PurchaseState.AWAITING_QUANTITY,
@@ -1456,6 +1458,8 @@ def _missing_order_fields(bundle: SignalBundle) -> List[str]:
     missing = []
     if not bundle.user_name:
         missing.append("user_name")
+    if not bundle.email:
+        missing.append("email")
     if not bundle.phone:
         missing.append("phone")
     if not bundle.address:
@@ -1572,7 +1576,20 @@ def _create_shopify_order_and_confirm(
                 email=order_email,
                 user=order_user,
                 product_snapshot=snapshot,
+                customer_name=bundle.user_name,
             )
+        
+        # Send confirmation email synchronously
+        email_sent = False
+        email_error = None
+        try:
+            email_sent = send_order_confirmation(local_order)
+        except Exception as exc:
+            logger.error("Failed to send order confirmation email: %s", exc, exc_info=True)
+            email_error = str(exc)
+        
+        bundle.confirmation_email_sent = email_sent
+        bundle.confirmation_email_error = email_error
     except Exception as exc:
         logger.error(
             "Local order creation failed: %s",
@@ -1735,9 +1752,17 @@ def _create_shopify_order_and_confirm(
                 ensure_ascii=False,
             )
             conv.purchase_state = PurchaseState.IDLE.value
+            conv.phone = None
+            conv.email = None
+            conv.address = None
+            conv.quantity = None
             update_fields = [
                 "last_product_data",
                 "purchase_state",
+                "phone",
+                "email",
+                "address",
+                "quantity",
             ]
             if hasattr(conv, "order_id"):
                 conv.order_id = local_order.pk
@@ -1752,6 +1777,9 @@ def _create_shopify_order_and_confirm(
             )
     bundle.purchase_state = PurchaseState.IDLE
     bundle.intent = "order_created"
+    bundle.checkout_intent = "order_created"
+    bundle.next_action = "track_order"
+    bundle.checkout_completed = True
     bundle.intent_conf = 1.0
     bundle.response_conf = 0.98
     first_item = local_order.items.first()
@@ -2241,6 +2269,9 @@ class ModelOrchestrator:
                 "order_id": bundle.order_id,
                 "order_number": local_order_number,
                 "tracking_token": tracking_token,
+                "checkout_completed": getattr(bundle, "checkout_completed", False),
+                "confirmation_email_sent": getattr(bundle, "confirmation_email_sent", False),
+                "confirmation_email_error": getattr(bundle, "confirmation_email_error", None),
             },
         }
 
