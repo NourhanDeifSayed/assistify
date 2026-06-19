@@ -719,10 +719,7 @@ Administrators can manage:
 * Conversations.
 * Support tickets.
 
----
-
-## Screenshots / Demo
-## Screenshots / Demo
+---## Screenshots / Demo
 
 ### Home Page
 
@@ -766,31 +763,27 @@ Administrators can manage:
 
 ### Admin Orders Page
 
-![Admin Orders](docs/screenshots/admin-orders.png)
+![Admin Orders](docs/screenshots/admin-orders.jpeg)
 
 ### Django Admin Dashboard
 
 ![Django Admin](docs/screenshots/django-admin.png)
 
-### Admin Orders
-
-![Admin Orders](docs/screenshots/admin-orders.png)
-
 ### Analytics Dashboard
 
-![Analytics Dashboard](docs/screenshots/analytics-dashboard.png)
+![Analytics Dashboard](docs/screenshots/analytics-dashboard.jpeg)
 
 ### Cancel Order
 
 ![Cancel Order](docs/screenshots/Cancel%20Order.png)
 
-### Chatbot Screen 2
-
-![Chatbot Screen 2](docs/screenshots/chabot_2.png)
-
 ### Chatbot Screen 1
 
 ![Chatbot Screen 1](docs/screenshots/chatbot_1.png)
+
+### Chatbot Screen 2
+
+![Chatbot Screen 2](docs/screenshots/chabot_2.png)
 
 ### Chatbot Screen 3
 
@@ -874,24 +867,24 @@ Administrators can manage:
 
 ### User Profile
 
-![User Profile](docs/screenshots/user-profile.png)
-
-### Order History 2
-
-![Order History 2](docs/screenshots/order-history-2.png)
-
-### Support Notifications
-
-![Support Notifications](docs/screenshots/support-notifications.png)
-
-### Order Status Notification
-
-![Order Status Notification](docs/screenshots/order-status-notification.png)
+![User Profile](docs/screenshots/user-profile.jpeg)
 
 ### Order History 1
 
-![Order History 1](docs/screenshots/order-history-1.png)
+![Order History 1](docs/screenshots/order-history-1..jpeg)
+
+### Order History 2
+
+![Order History 2](docs/screenshots/order-history-2.jpeg)
+
+### Support Notifications
+
+![Support Notifications](docs/screenshots/support-notifications.jpeg)
+
+### Order Status Notification
+
+![Order Status Notification](docs/screenshots/order-status-notification.jpeg)
 
 ### Assistify Demo
 
-![Assistify Demo](docs/screenshots\assistify-demo.mp4")
+![Assistify Demo](docs/screenshots/assistify-demo.mp4)
