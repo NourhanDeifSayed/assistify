@@ -722,6 +722,8 @@ Administrators can manage:
 ---
 
 ## Screenshots / Demo
+## Screenshots / Demo
+
 ### Home Page
 
 ![Home Page](docs/screenshots/home-page.png)
@@ -770,29 +772,113 @@ Administrators can manage:
 
 ![Django Admin](docs/screenshots/django-admin.png)
 
+### Admin Orders
+
+![Admin Orders](docs/screenshots/admin-orders.png)
+
 ### Analytics Dashboard
 
 ![Analytics Dashboard](docs/screenshots/analytics-dashboard.png)
 
-### Admin Orders Management
+### Cancel Order
 
-![Admin Orders](docs/screenshots/admin-orders.jpeg)
+![Cancel Order](docs/screenshots/Cancel%20Order.png)
 
-### Admin Orders Management (Alternative)
+### Chatbot Screen 2
 
-![Admin Orders Alt](docs/screenshots/admin-orders-alt.jpeg)
+![Chatbot Screen 2](docs/screenshots/chabot_2.png)
 
-### Order History
+### Chatbot Screen 1
 
-![Order History 1](docs/screenshots/order-history-1.jpeg)
+![Chatbot Screen 1](docs/screenshots/chatbot_1.png)
 
-### Order History (Alternative)
+### Chatbot Screen 3
 
-![Order History 2](docs/screenshots/order-history-2.jpeg)
+![Chatbot Screen 3](docs/screenshots/chatbot_3.png)
+
+### Complaint
+
+![Complaint](docs/screenshots/Complaint.png)
+
+### Delay Handling
+
+![Delay Handling](docs/screenshots/Delay%20Handling.png)
+
+### Greeting
+
+![Greeting](docs/screenshots/Greeting.png)
+
+### Missing Order Data
+
+![Missing Order Data](docs/screenshots/Missing%20Data%20(Order).png)
+
+### Negative Sentiment
+
+![Negative Sentiment](docs/screenshots/Negative%20Sentiment.png)
+
+### Order Confirmation
+
+![Order Confirmation](docs/screenshots/Order%20Confirmation.png)
+
+### Order Tracking (No Order ID)
+
+![Order Tracking (No Order ID)](docs/screenshots/Order%20Tracking%20(No%20Order%20ID).png)
+
+### Order Tracking (With ID)
+
+![Order Tracking (With ID)](docs/screenshots/Order%20Tracking%20(With%20ID).png)
+
+### Out of Scope
+
+![Out of Scope](docs/screenshots/Out%20of%20Scope.png)
+
+### Positive Sentiment
+
+![Positive Sentiment](docs/screenshots/Positive%20Sentiment.png)
+
+### Price Inquiry
+
+![Price Inquiry](docs/screenshots/Price%20Inquiry.png)
+
+### Product Inquiry
+
+![Product Inquiry](docs/screenshots/Product%20Inquiry.png)
+
+### Purchase Intent (Start)
+
+![Purchase Intent (Start)](docs/screenshots/Purchase%20Intent%20(Start).png)
+
+### Recommendation
+
+![Recommendation](docs/screenshots/Recommendation.png)
+
+### Shopify Drafts
+
+![Shopify Drafts](docs/screenshots/shopify_1.png)
+
+### Shopify Products
+
+![Shopify Products](docs/screenshots/shopify_2.png)
+
+### Shopify Order Details
+
+![Shopify Order Details](docs/screenshots/shopify_3.png)
+
+### Test 1 — Complaint
+
+![Test 1 — Complaint](docs/screenshots/Test%201%20%E2%80%94%20Complaint.png)
+
+### Test 4B — Recommendation
+
+![Test 4B — Recommendation](docs/screenshots/Test%204B%20%E2%80%94%20Recommendation.png)
 
 ### User Profile
 
-![User Profile](docs/screenshots/user-profile.jpeg)
+![User Profile](docs/screenshots/user-profile.png)
+
+### Order History 2
+
+![Order History 2](docs/screenshots/order-history-2.png)
 
 ### Support Notifications
 
@@ -802,9 +888,10 @@ Administrators can manage:
 
 ![Order Status Notification](docs/screenshots/order-status-notification.png)
 
+### Order History 1
 
-### Demo Video
+![Order History 1](docs/screenshots/order-history-1.png)
 
-![Assistify Demo](docs/screenshots/assistify-demo.mp4")
+### Assistify Demo
 
-
+![Assistify Demo](docs/screenshots\assistify-demo.mp4")
