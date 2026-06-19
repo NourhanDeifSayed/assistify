@@ -722,121 +722,61 @@ Administrators can manage:
 ---
 
 ## Screenshots / Demo
-
 ### Home Page
 
-<!-- Add the home-page screenshot to docs/screenshots/home-page.png -->
-
-```markdown
 ![Home Page](docs/screenshots/home-page.png)
-```
 
 ### Customer Chat Interface
 
-<!-- Add the chat screenshot to docs/screenshots/customer-chat.png -->
-
-```markdown
 ![Customer Chat](docs/screenshots/customer-chat.png)
-```
 
 ### Product Catalog
 
-<!-- Add the product-catalog screenshot to docs/screenshots/product-catalog.png -->
-
-```markdown
 ![Product Catalog](docs/screenshots/product-catalog.png)
-```
 
 ### Product Recommendation
 
-<!-- Add the product-recommendation screenshot to docs/screenshots/product-recommendation.png -->
-
-```markdown
 ![Product Recommendation](docs/screenshots/product-recommendation.png)
-```
 
 ### Conversational Checkout
 
-<!-- Add the checkout screenshot to docs/screenshots/checkout.png -->
-
-```markdown
 ![Conversational Checkout](docs/screenshots/checkout.png)
-```
 
 ### Successful Order
 
-<!-- Add the successful-order screenshot to docs/screenshots/successful-order.png -->
-
-```markdown
 ![Successful Order](docs/screenshots/successful-order.png)
-```
 
 ### Confirmation Email
 
-<!-- Add the confirmation-email screenshot to docs/screenshots/confirmation-email.png -->
-
-```markdown
 ![Confirmation Email](docs/screenshots/confirmation-email.png)
-```
 
 ### Order Tracking
 
-<!-- Add the order-tracking screenshot to docs/screenshots/order-tracking.png -->
-
-```markdown
 ![Order Tracking](docs/screenshots/order-tracking.png)
-```
 
 ### Complaint Workflow
 
-<!-- Add the complaint-workflow screenshot to docs/screenshots/complaint-workflow.png -->
-
-```markdown
 ![Complaint Workflow](docs/screenshots/complaint-workflow.png)
-```
 
 ### Admin Products Page
 
-<!-- Add the admin-products screenshot to docs/screenshots/admin-products.png -->
-
-```markdown
 ![Admin Products](docs/screenshots/admin-products.png)
-```
 
 ### Admin Orders Page
 
-<!-- Add the admin-orders screenshot to docs/screenshots/admin-orders.png -->
-
-```markdown
 ![Admin Orders](docs/screenshots/admin-orders.png)
-```
 
 ### Django Admin Dashboard
 
-<!-- Add the Django Admin screenshot to docs/screenshots/django-admin.png -->
-
-```markdown
 ![Django Admin](docs/screenshots/django-admin.png)
-```
 
 ### Demo GIF
 
-<!-- Add the demo GIF to docs/screenshots/assistify-demo.gif -->
-
-```markdown
 ![Assistify Demo](docs/screenshots/assistify-demo.gif)
-```
 
 ### Demo Video
 
 ```text
-Demo Video: Add the project demonstration video link here.
-```
-
-### Live Demo
-
-```text
-Live Demo: Add the deployed application link here.
-```
+Demo Video: https://drive.google.com/file/d/your-video-id/view
 
 ---
