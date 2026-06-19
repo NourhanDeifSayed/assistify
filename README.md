@@ -770,11 +770,10 @@ Administrators can manage:
 
 ![Django Admin](docs/screenshots/django-admin.png)
 
-### Demo GIF
-
-![Assistify Demo](docs/screenshots/assistify-demo.gif)
 
 ### Demo Video
+
+![Assistify Demo](docs/screenshots/assistify-demo.gif)
 
 ```text
 Demo Video: https://drive.google.com/file/d/your-video-id/view
