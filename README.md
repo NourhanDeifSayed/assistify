@@ -719,55 +719,11 @@ Administrators can manage:
 * Conversations.
 * Support tickets.
 
----## Screenshots / Demo
+## Screenshots / Demo
 
-### Home Page
-
-![Home Page](docs/screenshots/home-page.png)
-
-### Customer Chat Interface
-
-![Customer Chat](docs/screenshots/customer-chat.png)
-
-### Product Catalog
-
-![Product Catalog](docs/screenshots/product-catalog.png)
-
-### Product Recommendation
-
-![Product Recommendation](docs/screenshots/product-recommendation.png)
-
-### Conversational Checkout
-
-![Conversational Checkout](docs/screenshots/checkout.png)
-
-### Successful Order
-
-![Successful Order](docs/screenshots/successful-order.png)
-
-### Confirmation Email
-
-![Confirmation Email](docs/screenshots/confirmation-email.png)
-
-### Order Tracking
-
-![Order Tracking](docs/screenshots/order-tracking.png)
-
-### Complaint Workflow
-
-![Complaint Workflow](docs/screenshots/complaint-workflow.png)
-
-### Admin Products Page
-
-![Admin Products](docs/screenshots/admin-products.png)
-
-### Admin Orders Page
+### Admin Orders
 
 ![Admin Orders](docs/screenshots/admin-orders.jpeg)
-
-### Django Admin Dashboard
-
-![Django Admin](docs/screenshots/django-admin.png)
 
 ### Analytics Dashboard
 
@@ -777,13 +733,13 @@ Administrators can manage:
 
 ![Cancel Order](docs/screenshots/Cancel%20Order.png)
 
-### Chatbot Screen 1
-
-![Chatbot Screen 1](docs/screenshots/chatbot_1.png)
-
 ### Chatbot Screen 2
 
 ![Chatbot Screen 2](docs/screenshots/chabot_2.png)
+
+### Chatbot Screen 1
+
+![Chatbot Screen 1](docs/screenshots/chatbot_1.png)
 
 ### Chatbot Screen 3
 
@@ -869,10 +825,6 @@ Administrators can manage:
 
 ![User Profile](docs/screenshots/user-profile.jpeg)
 
-### Order History 1
-
-![Order History 1](docs/screenshots/order-history-1..jpeg)
-
 ### Order History 2
 
 ![Order History 2](docs/screenshots/order-history-2.jpeg)
@@ -884,6 +836,10 @@ Administrators can manage:
 ### Order Status Notification
 
 ![Order Status Notification](docs/screenshots/order-status-notification.jpeg)
+
+### Order History 1
+
+![Order History 1](docs/screenshots/order-history-1..jpeg)
 
 ### Assistify Demo
 
