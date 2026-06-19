@@ -86,18 +86,24 @@ export async function submitReview({ orderId, rating, comment }) {
   });
 }
 
-export async function sendChatMessage(message, conversationId = null) {
+export async function sendChatMessage(
+  message,
+  conversationId = null,
+  conversationToken = null
+) {
   const data = await request("/chat/", {
     method: "POST",
     body: JSON.stringify({
       message,
       conversation_id: conversationId,
+      conversation_token: conversationToken,
     }),
   });
 
   return {
     reply: data.reply,
     conversationId: data.conversation_id,
+    conversationToken: data.conversation_token,
   };
 }
 

@@ -10,6 +10,7 @@ export default function ChatWidget() {
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [conversationId, setConversationId] = useState(null);
+  const [conversationToken, setConversationToken] = useState(null);
   const messagesEndRef = useRef(null);
 
   useEffect(() => {
@@ -25,13 +26,30 @@ export default function ChatWidget() {
     setLoading(true);
 
     try {
-      const { reply, conversationId: cid } = await sendChatMessage(msg, conversationId);
+      const {
+        reply,
+        conversationId: cid,
+        conversationToken: token,
+      } = await sendChatMessage(
+        msg,
+        conversationId,
+        conversationToken
+      );
+
       setConversationId(cid);
-      setMessages((prev) => [...prev, { role: "bot", text: reply }]);
+      setConversationToken(token);
+
+      setMessages((prev) => [
+        ...prev,
+        { role: "bot", text: reply },
+      ]);
     } catch {
       setMessages((prev) => [
         ...prev,
-        { role: "bot", text: "Sorry, I encountered an error. Please try again." },
+        {
+          role: "bot",
+          text: "Sorry, I encountered an error. Please try again.",
+        },
       ]);
     } finally {
       setLoading(false);

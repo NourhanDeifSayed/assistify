@@ -16,6 +16,7 @@ export default function ChatPage() {
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [conversationId, setConversationId] = useState(null);
+  const [conversationToken, setConversationToken] = useState(null);
   const endRef = useRef(null);
 
   useEffect(() => { endRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages]);
@@ -27,11 +28,31 @@ export default function ChatPage() {
     setInput("");
     setLoading(true);
     try {
-      const { reply, conversationId: cid } = await sendChatMessage(msg, conversationId);
+      const {
+        reply,
+        conversationId: cid,
+        conversationToken: token,
+      } = await sendChatMessage(
+        msg,
+        conversationId,
+        conversationToken
+      );
+
       setConversationId(cid);
-      setMessages((prev) => [...prev, { role: "bot", text: reply }]);
+      setConversationToken(token);
+
+      setMessages((prev) => [
+        ...prev,
+        { role: "bot", text: reply },
+      ]);
     } catch {
-      setMessages((prev) => [...prev, { role: "bot", text: "Sorry, I encountered an error. Please try again." }]);
+      setMessages((prev) => [
+        ...prev,
+        {
+          role: "bot",
+          text: "Sorry, I encountered an error. Please try again.",
+        },
+      ]);
     } finally {
       setLoading(false);
     }
