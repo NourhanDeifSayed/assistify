@@ -2,6 +2,10 @@
 
 Assistify is an AI-powered, multi-platform customer support system that understands customer intent, generates intelligent responses, recommends suitable products, automates e-commerce interactions, creates and tracks orders, manages complaints, and supports human-agent escalation.
 
+### 🌐 Live Demo / Web Application
+Anyone can access and use our complete system directly through the web application:  
+👉 **[Assistify Web App (Vercel)](https://assistify-system-p3nt.vercel.app/)**
+
 ---
 
 ## 🚀 Hugging Face Space & Models
