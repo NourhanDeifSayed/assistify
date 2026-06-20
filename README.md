@@ -12,6 +12,9 @@ Assistify is an AI-powered, multi-platform customer support system that understa
 * **Fine-Tuned Recommendation Model**: Access our fine-tuned product recommendation model:  
   👉 **[Assistify Recommendation Model](https://huggingface.co/s-rahma/assistify-recommendation-model)**
 
+* **Medicare Dataset**: You can also use our dataset for training and fine-tuning:  
+  👉 **[Medicare Dataset on Hugging Face](https://huggingface.co/datasets/s-rahma/medicare-data)**
+
 ---
 
 
