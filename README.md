@@ -4,10 +4,13 @@ Assistify is an AI-powered, multi-platform customer support system that understa
 
 ---
 
-## 🚀 Live Demo
+## 🚀 Hugging Face Space & Models
 
-Experience the core model generation capabilities live! You can interact with and test our AI model directly on Hugging Face Spaces:
-👉 **[Medicare AI on Hugging Face](https://huggingface.co/spaces/s-rahma/medicare-ai)**
+* **Medicare AI (Live Demo)**: Interact with our response generation model on Hugging Face Spaces:  
+  👉 **[Medicare AI Space](https://huggingface.co/spaces/s-rahma/medicare-ai)**
+
+* **Fine-Tuned Recommendation Model**: Access our fine-tuned product recommendation model:  
+  👉 **[Assistify Recommendation Model](https://huggingface.co/s-rahma/assistify-recommendation-model)**
 
 ---
 
